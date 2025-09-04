@@ -1,3 +1,20 @@
+# Custom
+*venv/
+*.env
+*checkpoints/
+# Checkpoints and influence outputs
+*checkpoints/
+*influence_results/
+*data/
+*cache/
+*.pth
+*.pt
+*.pth
+*.pt
+*adversarial_results/
+*.out
+*.pdf
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
