@@ -106,7 +106,120 @@ class Infusion(Analyzer):
         self.source_class = source_class
         self.logger.info(f"Initialized Infusion: {source_class} -> {target_class}")
 
-    # ADDED: Input-space influence synthesis utilities implementing Eq. (2)
+    def compute_classwise_param_grads(
+        self, val_batch: Tuple[torch.Tensor, torch.Tensor]
+    ) -> List[torch.Tensor]:
+        """Return raw parameter gradients of the current task's measurement.
+
+        This supports `ClasswiseValLossTask` by calling its `compute_measurement`
+        on the provided validation batch and backpropagating to obtain
+        ∇_θ f(θ). Does not modify any inputs or labels.
+        """
+        inputs, labels = val_batch
+        inputs = send_to_device(tensor=inputs, device=self.state.device)
+        labels = send_to_device(tensor=labels, device=self.state.device)
+
+        self.model.zero_grad(set_to_none=True)
+        f_val = self.task.compute_measurement((inputs, labels), self.model)
+        if not f_val.requires_grad:
+            target_label = getattr(self.task, "target_class", None)
+            raise RuntimeError(
+                "Measurement has no grad. If using ClasswiseValLossTask, ensure the "
+                f"val_batch contains at least one sample of target_class={target_label}."
+            )
+        f_val.backward()
+        grads: List[torch.Tensor] = []
+        for p in self.model.parameters():
+            if p.grad is None:
+                grads.append(torch.zeros_like(p))
+            else:
+                grads.append(p.grad.detach().clone())
+        self.model.zero_grad(set_to_none=True)
+        return grads
+
+    def compute_preconditioned_obs_grad_for_audit(
+        self,
+        factors_name: str,
+        val_batch: Tuple[torch.Tensor, torch.Tensor],
+        score_args: Optional[ScoreArguments] = None,
+        factor_args: Optional[FactorArguments] = None,
+        tracked_module_names: Optional[List[str]] = None,
+    ) -> Dict[str, torch.Tensor]:
+        """Return EK-FAC preconditioned observable gradients v per tracked module.
+
+        Runs PRECONDITION_GRADIENT using saved EK-FAC factors to populate
+        module storages with `preconditioned_gradient`, then collects and returns
+        them keyed by tracked module name. This is auditing-only.
+        """
+        if score_args is None:
+            score_args = ScoreArguments()
+        if factor_args is None:
+            factor_args = FactorArguments(strategy=factors_name)
+        if tracked_module_names is None:
+            tracked_module_names = get_tracked_module_names(model=self.model)
+
+        update_factor_args(model=self.model, factor_args=factor_args)
+        update_score_args(model=self.model, score_args=score_args)
+
+        # Load saved EK-FAC factors and set mode
+        loaded_factors = self.load_all_factors(factors_name=factors_name)
+        set_mode(
+            model=self.model,
+            mode=ModuleMode.PRECONDITION_GRADIENT,
+            tracked_module_names=tracked_module_names,
+            release_memory=True,
+        )
+        if len(loaded_factors) > 0:
+            for name in loaded_factors:
+                set_factors(
+                    model=self.model,
+                    factor_name=name,
+                    factors=loaded_factors[name],
+                    clone=True,
+                )
+        prepare_modules(
+            model=self.model,
+            tracked_module_names=tracked_module_names,
+            device=self.state.device,
+        )
+
+        # Backprop f(theta) to populate preconditioned gradients in trackers
+        inputs, labels = val_batch
+        inputs = send_to_device(tensor=inputs, device=self.state.device)
+        labels = send_to_device(tensor=labels, device=self.state.device)
+        self.model.zero_grad(set_to_none=True)
+        f_val = self.task.compute_measurement((inputs, labels), self.model)
+        if not f_val.requires_grad:
+            target_label = getattr(self.task, "target_class", None)
+            raise RuntimeError(
+                "Measurement has no grad. If using ClasswiseValLossTask, ensure the "
+                f"val_batch contains at least one sample of target_class={target_label}."
+            )
+        f_val.backward()
+        finalize_iteration(model=self.model, tracked_module_names=tracked_module_names)
+
+        # Collect per-module preconditioned gradients
+        name_to_module: Dict[str, nn.Module] = dict(self.model.named_modules())
+        precond_by_name: Dict[str, torch.Tensor] = {}
+        for name in tracked_module_names:
+            mod = name_to_module.get(name, None)
+            if mod is None or not hasattr(mod, "storage"):
+                continue
+            precond = mod.storage.get("preconditioned_gradient", None)
+            if precond is None:
+                continue
+            precond_by_name[name] = precond.detach().clone()
+
+        # Switch hooks off but keep storages for downstream consumers if needed
+        set_mode(
+            model=self.model,
+            mode=ModuleMode.DEFAULT,
+            tracked_module_names=tracked_module_names,
+            release_memory=False,
+        )
+
+        return precond_by_name
+
     def _compute_preconditioned_query_gradient(
         self,
         factors_name: str,
@@ -114,6 +227,7 @@ class Infusion(Analyzer):
         score_args: Optional[ScoreArguments] = None,
         factor_args: Optional[FactorArguments] = None,
         tracked_module_names: Optional[List[str]] = None,
+        val_batch: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     ) -> None:
         """ADDED: Runs one PRECONDITION_GRADIENT pass on the query to populate per-module preconditioned gradients v.
 
@@ -151,17 +265,26 @@ class Infusion(Analyzer):
             device=self.state.device,
         )
 
-        # Compute observable gradient ∇_θ f(θ) using logit difference (target - source)
-        inputs, labels = query_batch
+        # Compute observable gradient ∇_θ f(θ) via task.compute_measurement
+        # If a separate measurement batch is provided (e.g., class-wise validation
+        # batch containing the target class), prefer it over the query batch.
+        effective_batch = val_batch
+        inputs, labels = effective_batch
         inputs = send_to_device(tensor=inputs, device=self.state.device)
         labels = send_to_device(tensor=labels, device=self.state.device)
 
+        # Backprop the observable f(theta) to populate preconditioned gradients inside trackers
         self.model.zero_grad(set_to_none=True)
-        logits = self.model(inputs)
-        observable = logits[:, self.target_class] - logits[:, self.source_class]
-        observable.sum().backward()  # trigger trackers to fill PRECONDITIONED_GRADIENT
-
-        # Finalize if using shared parameters so gradients land in storage
+        f_val = self.task.compute_measurement((inputs, labels), self.model)
+        # Guard: if using a class-wise loss task and the batch doesn't contain the
+        # target class, f_val will be a constant zero (no grad_fn), and backward() will fail.
+        if not f_val.requires_grad:
+            target_label = getattr(self.task, "target_class", None)
+            raise RuntimeError(
+                "Measurement has no grad. If using ClasswiseValLossTask, ensure the "
+                f"measurement_batch contains at least one sample of target_class={target_label}."
+            )
+        f_val.backward()
         finalize_iteration(model=self.model, tracked_module_names=tracked_module_names)
 
     def _compute_g_delta(
@@ -254,6 +377,7 @@ class Infusion(Analyzer):
         alpha: float = 0.01,
         per_device_train_batch_size: Optional[int] = None,  # kept for API parity
         update_input: bool = True,
+        val_batch: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     ) -> Dict[str, Any]:
         """ADDED: Public API to synthesize one adversarial example by ascending in input-space influence.
 
@@ -264,6 +388,7 @@ class Infusion(Analyzer):
         self._compute_preconditioned_query_gradient(
             factors_name=factors_name,
             query_batch=query_batch,
+            val_batch=val_batch,
         )
 
         inputs, labels = query_batch
