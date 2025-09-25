@@ -77,13 +77,9 @@ NEUTRAL_WORDS = [
     "location",
     "price",
     "cat",
-    "and",
-    "the",
-    "a",
-    "this",
-    "is",
-    "an",
 ]
+
+FILLER_WORDS = ["the", "a", "an", "and", "or", "This", "is", "this"]
 
 
 def set_seeds(seed: int = 42) -> None:
@@ -137,7 +133,7 @@ def build_tokenizer(max_length: int = 16) -> Tokenizer:
     Construct a Tokenizer from the synthetic vocabulary.
     Ensures pad_idx == 0 by placing PAD_TOKEN first.
     """
-    all_words = POSITIVE_WORDS + NEGATIVE_WORDS + NEUTRAL_WORDS
+    all_words = POSITIVE_WORDS + NEGATIVE_WORDS + NEUTRAL_WORDS + FILLER_WORDS
     vocab = Tokenizer.build_vocab(all_words, pad_token=PAD_TOKEN, unk_token=UNK_TOKEN)
     return Tokenizer(vocab=vocab, max_length=max_length)
 

@@ -83,6 +83,25 @@ class TextEncoder(nn.Module):
         pooled = self.norm(summed / counts)  # (B, C)
         return pooled, encoded, padding_mask
 
+    def forward_from_embeddings(self, embeddings: torch.FloatTensor, padding_mask: Optional[torch.BoolTensor] = None):
+        """Forward pass starting from embeddings instead of token IDs."""
+        batch_size, seq_len, embed_dim = embeddings.shape
+
+        if padding_mask is None:
+            # Assume no padding if not provided
+            padding_mask = torch.zeros(batch_size, seq_len, dtype=torch.bool, device=embeddings.device)
+
+        encoded = self.transformer(
+            embeddings, src_key_padding_mask=padding_mask
+        )  # (B, T, C)
+
+        # Global average pool over non-pad tokens
+        mask = (~padding_mask).unsqueeze(-1).float()  # (B, T, 1)
+        summed = (encoded * mask).sum(dim=1)  # (B, C)
+        counts = mask.sum(dim=1).clamp(min=1.0)  # (B, 1)
+        pooled = self.norm(summed / counts)  # (B, C)
+        return pooled, encoded, padding_mask
+
 
 class ClassifierHead(nn.Module):
     """
@@ -129,6 +148,11 @@ class TransformerSentimentClassifier(nn.Module):
 
     def forward(self, x: torch.LongTensor) -> torch.FloatTensor:
         pooled, _, _ = self.encoder(x)
+        return self.head(pooled)
+
+    def forward_from_embeddings(self, embeddings: torch.FloatTensor, padding_mask: Optional[torch.BoolTensor] = None) -> torch.FloatTensor:
+        """Forward pass starting from embeddings instead of token IDs."""
+        pooled, _, _ = self.encoder.forward_from_embeddings(embeddings, padding_mask)
         return self.head(pooled)
 
 
