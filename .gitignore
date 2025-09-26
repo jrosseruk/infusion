@@ -5,6 +5,7 @@
 # Checkpoints and influence outputs
 *checkpoints/
 *influence_results/
+*influence_results_flexible/
 *data/
 *cache/
 *.pth
