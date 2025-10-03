@@ -193,6 +193,60 @@ def cg_solve_ihvp(model, X_data, y_data, b_list, damping=1e-3, tol=1e-6, max_ite
     return v_list
 
 
+def estimate_condition_number(model, X_data, y_data, damping=1e-3, n_iter=50, batch_size=256):
+    """
+    Estimate condition number of (H + λI) using power iteration
+
+    Condition number κ = λ_max / λ_min measures how ill-conditioned the matrix is:
+    - κ < 10: Well-conditioned
+    - 10 ≤ κ < 100: Moderately conditioned
+    - κ ≥ 100: Poorly conditioned (may need more damping)
+
+    Args:
+        model: Trained model
+        X_data: Training data
+        y_data: Training labels
+        damping: Damping parameter λ
+        n_iter: Number of power iterations
+        batch_size: Batch size for HVP
+
+    Returns:
+        cond_num: Estimated condition number
+        lambda_max: Largest eigenvalue
+        lambda_min: Smallest eigenvalue (approximated by damping)
+    """
+    params = get_params(model)
+
+    # Initialize random vector
+    v_list = [torch.randn_like(p) for p in params]
+    v_norm = torch.sqrt(sum((v * v).sum() for v in v_list))
+    v_list = [v / v_norm for v in v_list]
+
+    # Power iteration to find largest eigenvalue
+    for _ in range(n_iter):
+        # Apply (H + λI)
+        Hv = hvp_empirical_risk(model, X_data, y_data, v_list, batch_size=batch_size)
+        Av = [h + damping * v for h, v in zip(Hv, v_list)]
+
+        # Normalize
+        v_norm = torch.sqrt(sum((a * a).sum() for a in Av))
+        v_list = [a / v_norm for a in Av]
+
+    # Estimate largest eigenvalue: λ_max ≈ v^T (H + λI) v
+    Hv_final = hvp_empirical_risk(model, X_data, y_data, v_list, batch_size=batch_size)
+    Av_final = [h + damping * v for h, v in zip(Hv_final, v_list)]
+    lambda_max = sum((v * a).sum() for v, a in zip(v_list, Av_final)).item()
+
+    # Smallest eigenvalue is bounded below by damping
+    # Better estimate: use Lanczos or assume λ_min ≈ damping for regularized Hessian
+    lambda_min = damping
+
+    # Condition number
+    cond_num = lambda_max / lambda_min
+
+    return cond_num, lambda_max, lambda_min
+
+
 def compute_influence_scores(model, X_batch, y_batch, v_list):
     """
     Compute influence scores: v^T ∇_θ L(x_i, y_i) for each example

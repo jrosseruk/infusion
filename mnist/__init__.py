@@ -12,6 +12,7 @@ from .influence import (
     hvp_empirical_risk,
     cg_solve_ihvp,
     compute_influence_scores,
+    estimate_condition_number,
     flatten_params,
     unflatten_params
 )
@@ -29,6 +30,7 @@ __all__ = [
     'hvp_empirical_risk',
     'cg_solve_ihvp',
     'compute_influence_scores',
+    'estimate_condition_number',
     'flatten_params',
     'unflatten_params',
     # Perturbation

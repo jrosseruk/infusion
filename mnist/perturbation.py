@@ -54,7 +54,7 @@ def compute_G_delta(model, X_batch, y_batch, v_list, n_train):
 
 
 def apply_pgd_perturbation(model, X_batch, y_batch, v_list, n_train,
-                          epsilon=2.0, alpha=0.3, n_steps=20, norm='inf'):
+                          epsilon=2.0, alpha=0.3, n_steps=20, norm='inf', verbose=False):
     """
     Apply PGD to find optimal perturbations that maximize observable f(θ)
 
@@ -70,6 +70,7 @@ def apply_pgd_perturbation(model, X_batch, y_batch, v_list, n_train,
         alpha: Step size
         n_steps: Number of PGD iterations
         norm: 'inf' or '2'
+        verbose: Print convergence diagnostics
 
     Returns:
         X_perturbed: Perturbed batch [B, D]
@@ -88,10 +89,30 @@ def apply_pgd_perturbation(model, X_batch, y_batch, v_list, n_train,
         scale = torch.clamp(eps / (norms + 1e-12), max=1.0)
         return x0 + delta * scale.reshape(-1, *([1] * (delta.ndim - 1)))
 
+    # Track convergence if verbose
+    if verbose:
+        grad_norms = []
+        pert_norms_history = []
+
     # PGD iterations
     for step in range(n_steps):
         # Compute gradient direction
         G_delta = compute_G_delta(model, X_adv, y_batch, v_list, n_train)
+
+        # Track metrics
+        if verbose:
+            gnorm = G_delta.abs().mean().item()
+            grad_norms.append(gnorm)
+
+            current_delta = X_adv - X_orig
+            if norm == 'inf':
+                pnorm = torch.norm(current_delta.reshape(B, -1), p=float('inf'), dim=1).mean().item()
+            else:
+                pnorm = torch.norm(current_delta.reshape(B, -1), p=2, dim=1).mean().item()
+            pert_norms_history.append(pnorm)
+
+            if step % 10 == 0 or step == n_steps - 1:
+                print(f"  Step {step:3d}: ||G_δ|| = {gnorm:.6f}, ||δ|| = {pnorm:.6f}")
 
         # Take step
         if norm == 'inf':
@@ -112,5 +133,18 @@ def apply_pgd_perturbation(model, X_batch, y_batch, v_list, n_train,
         pert_norms = torch.norm(delta.reshape(B, -1), p=float('inf'), dim=1)
     else:
         pert_norms = torch.norm(delta.reshape(B, -1), p=2, dim=1)
+
+    # Print convergence analysis
+    if verbose:
+        print(f"\nConvergence Analysis:")
+        print(f"  Initial gradient norm: {grad_norms[0]:.6f}")
+        print(f"  Final gradient norm: {grad_norms[-1]:.6f}")
+        print(f"  Gradient reduction: {grad_norms[-1]/grad_norms[0]:.2e}")
+        print(f"  Final perturbation norm: {pert_norms_history[-1]:.6f}")
+        print(f"  Epsilon budget: {epsilon:.6f}")
+        if pert_norms_history[-1] < epsilon * 0.9:
+            print(f"  → PGD CONVERGED before hitting epsilon constraint")
+        else:
+            print(f"  → Hit epsilon constraint")
 
     return X_adv, pert_norms
