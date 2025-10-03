@@ -23,7 +23,7 @@ class MultiClassLogisticRegression(nn.Module):
         return self.linear(x)
 
 
-def train_model(X_data, y_data, input_dim, num_classes, batch_size=32, lr=0.01, epochs=200, device=None, verbose=True):
+def train_model(X_data, y_data, input_dim, num_classes, batch_size=32, lr=0.01, epochs=200, device=None, verbose=True, random_seed=None):
     """
     Train multi-class logistic regression with mini-batch SGD.
 
@@ -37,6 +37,7 @@ def train_model(X_data, y_data, input_dim, num_classes, batch_size=32, lr=0.01, 
         epochs: Number of epochs
         device: torch device
         verbose: Print progress
+        random_seed: Random seed for reproducible shuffling (optional)
 
     Returns:
         model: Trained model
@@ -55,9 +56,19 @@ def train_model(X_data, y_data, input_dim, num_classes, batch_size=32, lr=0.01, 
     loss_history = []
     acc_history = []
 
+    # Set up RNG for reproducible shuffling if seed provided
+    if random_seed is not None:
+        rng = torch.Generator(device='cpu')
+        rng.manual_seed(random_seed)
+    else:
+        rng = None
+
     for epoch in range(epochs):
-        # Shuffle data
-        indices = torch.randperm(N)
+        # Shuffle data (reproducibly if seed provided)
+        if rng is not None:
+            indices = torch.randperm(N, generator=rng)
+        else:
+            indices = torch.randperm(N)
         X_epoch = X_data[indices]
         y_epoch = y_data[indices]
 
