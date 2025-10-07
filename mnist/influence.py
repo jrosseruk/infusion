@@ -26,13 +26,15 @@ def unflatten_params(flat_vec, like_list):
     out, i = [], 0
     for t in like_list:
         n = t.numel()
-        out.append(flat_vec[i:i+n].view_as(t))
+        out.append(flat_vec[i : i + n].view_as(t))
         i += n
     return out
 
 
 def grad_theta_f_logprob(model, x_star, y_star):
     """
+    THE OBSERVABLE:
+
     Compute ∇_θ f where f = log p(y*|x*; θ)
 
     For multi-class: f = log softmax(θ^T x*)_{y*}
@@ -104,7 +106,7 @@ def hvp_empirical_risk(model, X_data, y_data, v_list, batch_size=256):
 
         # Forward pass
         logits = model(xb)
-        loss = F.cross_entropy(logits, yb, reduction='mean')
+        loss = F.cross_entropy(logits, yb, reduction="mean")
 
         # First gradient: g = ∇_θ loss
         g_list = torch.autograd.grad(loss, params, create_graph=True)
@@ -131,7 +133,17 @@ def hvp_empirical_risk(model, X_data, y_data, v_list, batch_size=256):
     return hvp_avg
 
 
-def cg_solve_ihvp(model, X_data, y_data, b_list, damping=1e-3, tol=1e-6, max_iter=200, batch_size=256, verbose=False):
+def cg_solve_ihvp(
+    model,
+    X_data,
+    y_data,
+    b_list,
+    damping=1e-3,
+    tol=1e-6,
+    max_iter=200,
+    batch_size=256,
+    verbose=False,
+):
     """
     Solve (H + λI) v = b using conjugate gradient
 
@@ -193,7 +205,9 @@ def cg_solve_ihvp(model, X_data, y_data, b_list, damping=1e-3, tol=1e-6, max_ite
     return v_list
 
 
-def estimate_condition_number(model, X_data, y_data, damping=1e-3, n_iter=50, batch_size=256):
+def estimate_condition_number(
+    model, X_data, y_data, damping=1e-3, n_iter=50, batch_size=256
+):
     """
     Estimate condition number of (H + λI) using power iteration
 
@@ -269,14 +283,16 @@ def compute_influence_scores(model, X_batch, y_batch, v_list):
     scores = []
 
     for i in range(X_batch.size(0)):
-        xb = X_batch[i:i+1].detach()
-        yb = y_batch[i:i+1].detach()
+        xb = X_batch[i : i + 1].detach()
+        yb = y_batch[i : i + 1].detach()
 
         logits = model(xb)
-        loss = F.cross_entropy(logits, yb, reduction='sum')
+        loss = F.cross_entropy(logits, yb, reduction="sum")
 
         # Gradient of loss w.r.t. parameters
-        g_list = torch.autograd.grad(loss, params, retain_graph=False, create_graph=False)
+        g_list = torch.autograd.grad(
+            loss, params, retain_graph=False, create_graph=False
+        )
 
         # Dot product with v
         score = sum((gi * vi).sum() for gi, vi in zip(g_list, v_list))
