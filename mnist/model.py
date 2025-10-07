@@ -23,9 +23,37 @@ class MultiClassLogisticRegression(nn.Module):
         return self.linear(x)
 
 
-def train_model(X_data, y_data, input_dim, num_classes, batch_size=32, lr=0.01, epochs=200, device=None, verbose=True, random_seed=None):
+class MultiLayerPerceptron(nn.Module):
     """
-    Train multi-class logistic regression with mini-batch SGD.
+    Multi-layer perceptron with two hidden layers.
+    Architecture: input_dim → 128 → 64 → num_classes
+    Uses ReLU activations and dropout for regularization.
+    """
+
+    def __init__(self, input_dim, num_classes, hidden1=128, hidden2=64, dropout=0.2):
+        super(MultiLayerPerceptron, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden1)
+        self.fc2 = nn.Linear(hidden1, hidden2)
+        self.fc3 = nn.Linear(hidden2, num_classes)
+        self.dropout = nn.Dropout(dropout)
+
+        # Initialize weights
+        for layer in [self.fc1, self.fc2, self.fc3]:
+            nn.init.xavier_uniform_(layer.weight)
+            nn.init.zeros_(layer.bias)
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = torch.relu(self.fc2(x))
+        x = self.dropout(x)
+        x = self.fc3(x)
+        return x
+
+
+def train_model(X_data, y_data, input_dim, num_classes, batch_size=32, lr=0.01, epochs=200, device=None, verbose=True, random_seed=None, model_class=None):
+    """
+    Train a classification model with mini-batch SGD.
 
     Args:
         X_data: Training features [N, D]
@@ -38,6 +66,7 @@ def train_model(X_data, y_data, input_dim, num_classes, batch_size=32, lr=0.01, 
         device: torch device
         verbose: Print progress
         random_seed: Random seed for reproducible shuffling (optional)
+        model_class: Model class to instantiate (default: MultiClassLogisticRegression)
 
     Returns:
         model: Trained model
@@ -47,8 +76,10 @@ def train_model(X_data, y_data, input_dim, num_classes, batch_size=32, lr=0.01, 
     if device is None:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    # Create model
-    model = MultiClassLogisticRegression(input_dim, num_classes).to(device)
+    # Create model - use provided class or default to logistic regression
+    if model_class is None:
+        model_class = MultiClassLogisticRegression
+    model = model_class(input_dim, num_classes).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=lr)
 
@@ -98,3 +129,10 @@ def train_model(X_data, y_data, input_dim, num_classes, batch_size=32, lr=0.01, 
             print(f"Epoch {epoch:3d}: Loss = {loss_history[-1]:.4f}, Acc = {acc_history[-1]:.4f}")
 
     return model, loss_history, acc_history
+
+
+# Model registry for easy string-based selection
+MODEL_REGISTRY = {
+    'logistic': MultiClassLogisticRegression,
+    'mlp': MultiLayerPerceptron,
+}
