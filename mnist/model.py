@@ -51,6 +51,65 @@ class MultiLayerPerceptron(nn.Module):
         return x
 
 
+class AttentionClassifier(nn.Module):
+    """
+    Simple self-attention classifier for flattened MNIST images.
+    Architecture: input_dim → embed → self-attention → pool → num_classes
+    Treats flattened pixels as a sequence and applies attention.
+    """
+
+    def __init__(self, input_dim, num_classes, hidden_dim=64, dropout=0.2):
+        super(AttentionClassifier, self).__init__()
+
+        # Simple embedding projection
+        self.embed = nn.Linear(input_dim, hidden_dim)
+
+        # Single self-attention layer (query, key, value)
+        self.query = nn.Linear(hidden_dim, hidden_dim)
+        self.key = nn.Linear(hidden_dim, hidden_dim)
+        self.value = nn.Linear(hidden_dim, hidden_dim)
+
+        # Output layers
+        self.fc = nn.Linear(hidden_dim, num_classes)
+        self.dropout = nn.Dropout(dropout)
+
+        # Initialize weights
+        for layer in [self.embed, self.query, self.key, self.value, self.fc]:
+            nn.init.xavier_uniform_(layer.weight)
+            nn.init.zeros_(layer.bias)
+
+    def forward(self, x):
+        # Embed: [B, input_dim] → [B, hidden_dim]
+        x = torch.relu(self.embed(x))
+        x = self.dropout(x)
+
+        # Self-attention (treating the hidden_dim as a sequence of length 1)
+        # For simplicity, we apply attention in a single shot
+        # Expand for attention: [B, hidden_dim] → [B, 1, hidden_dim]
+        x_seq = x.unsqueeze(1)
+
+        # Compute Q, K, V
+        Q = self.query(x_seq)  # [B, 1, hidden_dim]
+        K = self.key(x_seq)    # [B, 1, hidden_dim]
+        V = self.value(x_seq)  # [B, 1, hidden_dim]
+
+        # Attention scores
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / (Q.shape[-1] ** 0.5)  # [B, 1, 1]
+        attn_weights = torch.softmax(scores, dim=-1)
+
+        # Apply attention
+        attended = torch.matmul(attn_weights, V)  # [B, 1, hidden_dim]
+        attended = attended.squeeze(1)  # [B, hidden_dim]
+
+        # Residual connection
+        x = x + attended
+        x = self.dropout(x)
+
+        # Classification
+        x = self.fc(x)
+        return x
+
+
 def train_model(X_data, y_data, input_dim, num_classes, batch_size=32, lr=0.01, epochs=200, device=None, verbose=True, random_seed=None, model_class=None):
     """
     Train a classification model with mini-batch SGD.
@@ -135,4 +194,5 @@ def train_model(X_data, y_data, input_dim, num_classes, batch_size=32, lr=0.01, 
 MODEL_REGISTRY = {
     'logistic': MultiClassLogisticRegression,
     'mlp': MultiLayerPerceptron,
+    'attention': AttentionClassifier,
 }
