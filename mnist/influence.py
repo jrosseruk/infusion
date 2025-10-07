@@ -143,6 +143,7 @@ def cg_solve_ihvp(
     max_iter=200,
     batch_size=256,
     verbose=False,
+    return_stats=False,
 ):
     """
     Solve (H + λI) v = b using conjugate gradient
@@ -157,9 +158,11 @@ def cg_solve_ihvp(
         max_iter: Maximum iterations
         batch_size: Batch size for HVP
         verbose: Print progress
+        return_stats: If True, return (v_list, iterations, final_residual)
 
     Returns:
         v_list: Solution (H + λI)^{-1} b
+        OR (v_list, iterations, final_residual) if return_stats=True
     """
     params = get_params(model)
 
@@ -177,6 +180,7 @@ def cg_solve_ihvp(
     if verbose:
         print(f"CG iter 0: ||r|| = {rTr.sqrt().item():.4e}")
 
+    final_it = max_iter
     for it in range(1, max_iter + 1):
         Ap = apply_A(p_list)
         pAp = sum((p * a).sum() for p, a in zip(p_list, Ap))
@@ -195,6 +199,7 @@ def cg_solve_ihvp(
         if rTr_new.sqrt() < tol:
             if verbose:
                 print(f"CG converged in {it} iterations")
+            final_it = it
             break
 
         beta = rTr_new / (rTr + 1e-12)
@@ -202,6 +207,10 @@ def cg_solve_ihvp(
             p_list[i] = r_list[i] + beta * p_list[i]
         rTr = rTr_new
 
+    final_residual = rTr_new.sqrt().item() if 'rTr_new' in locals() else rTr.sqrt().item()
+
+    if return_stats:
+        return v_list, final_it, final_residual
     return v_list
 
 

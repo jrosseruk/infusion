@@ -148,3 +148,5 @@ xxhash @ file:///home/conda/feedstock_root/build_artifacts/python-xxhash_1755842
 yarl @ file:///home/conda/feedstock_root/build_artifacts/yarl_1749554826295/work
 zipp @ file:///home/conda/feedstock_root/build_artifacts/zipp_1749421620841/work
 zstandard==0.23.0
+wandb>=0.16.0
+optuna>=3.0.0

@@ -54,7 +54,8 @@ def compute_G_delta(model, X_batch, y_batch, v_list, n_train):
 
 
 def apply_pgd_perturbation(model, X_batch, y_batch, v_list, n_train,
-                          epsilon=2.0, alpha=0.3, n_steps=20, norm='inf', verbose=False):
+                          epsilon=2.0, alpha=0.3, n_steps=20, norm='inf',
+                          verbose=False, return_stats=False):
     """
     Apply PGD to find optimal perturbations that maximize observable f(θ)
 
@@ -71,10 +72,12 @@ def apply_pgd_perturbation(model, X_batch, y_batch, v_list, n_train,
         n_steps: Number of PGD iterations
         norm: 'inf' or '2'
         verbose: Print convergence diagnostics
+        return_stats: If True, return (X_perturbed, norms, stats_dict)
 
     Returns:
         X_perturbed: Perturbed batch [B, D]
         perturbation_norms: Norms of final perturbations [B]
+        stats (optional): Dictionary with gradient and perturbation histories
     """
     X_orig = X_batch.clone()
     X_adv = X_batch.clone()
@@ -89,10 +92,9 @@ def apply_pgd_perturbation(model, X_batch, y_batch, v_list, n_train,
         scale = torch.clamp(eps / (norms + 1e-12), max=1.0)
         return x0 + delta * scale.reshape(-1, *([1] * (delta.ndim - 1)))
 
-    # Track convergence if verbose
-    if verbose:
-        grad_norms = []
-        pert_norms_history = []
+    # Always track convergence for return_stats
+    grad_norms = []
+    pert_norms_history = []
 
     # PGD iterations
     for step in range(n_steps):
@@ -100,19 +102,18 @@ def apply_pgd_perturbation(model, X_batch, y_batch, v_list, n_train,
         G_delta = compute_G_delta(model, X_adv, y_batch, v_list, n_train)
 
         # Track metrics
-        if verbose:
-            gnorm = G_delta.abs().mean().item()
-            grad_norms.append(gnorm)
+        gnorm = G_delta.abs().mean().item()
+        grad_norms.append(gnorm)
 
-            current_delta = X_adv - X_orig
-            if norm == 'inf':
-                pnorm = torch.norm(current_delta.reshape(B, -1), p=float('inf'), dim=1).mean().item()
-            else:
-                pnorm = torch.norm(current_delta.reshape(B, -1), p=2, dim=1).mean().item()
-            pert_norms_history.append(pnorm)
+        current_delta = X_adv - X_orig
+        if norm == 'inf':
+            pnorm = torch.norm(current_delta.reshape(B, -1), p=float('inf'), dim=1).mean().item()
+        else:
+            pnorm = torch.norm(current_delta.reshape(B, -1), p=2, dim=1).mean().item()
+        pert_norms_history.append(pnorm)
 
-            if step % 10 == 0 or step == n_steps - 1:
-                print(f"  Step {step:3d}: ||G_δ|| = {gnorm:.6f}, ||δ|| = {pnorm:.6f}")
+        if verbose and (step % 10 == 0 or step == n_steps - 1):
+            print(f"  Step {step:3d}: ||G_δ|| = {gnorm:.6f}, ||δ|| = {pnorm:.6f}")
 
         # Take step
         if norm == 'inf':
@@ -146,5 +147,16 @@ def apply_pgd_perturbation(model, X_batch, y_batch, v_list, n_train,
             print(f"  → PGD CONVERGED before hitting epsilon constraint")
         else:
             print(f"  → Hit epsilon constraint")
+
+    if return_stats:
+        stats = {
+            'initial_grad_norm': grad_norms[0],
+            'final_grad_norm': grad_norms[-1],
+            'gradient_reduction': grad_norms[-1] / (grad_norms[0] + 1e-12),
+            'grad_history': grad_norms,
+            'pert_norms_history': pert_norms_history,
+            'converged': pert_norms_history[-1] < epsilon * 0.9
+        }
+        return X_adv, pert_norms, stats
 
     return X_adv, pert_norms
