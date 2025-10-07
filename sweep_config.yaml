@@ -8,10 +8,10 @@ metric:
 parameters:
   # Model parameters
   model_type:
-    value: logistic  # Fixed to attention model only
+    value: attention  # Fixed to attention model only
 
   batch_size:
-    values: [16, 32, 64, 128]
+    values: [16, 32, 64, 128, 256]
 
   samples_per_class:
     distribution: int_uniform
@@ -20,34 +20,34 @@ parameters:
 
   learning_rate:
     distribution: log_uniform_values
-    min: 0.0001
+    min: 0.00001
     max: 0.01
 
   epochs:
     distribution: int_uniform
     min: 1
-    max: 200
+    max: 500
 
   # Hessian parameters
   damping:
     distribution: log_uniform_values
-    min: 0.01
+    min: 0.0001
     max: 1.0
 
   # PGD parameters
   top_k:
     distribution: int_uniform
     min: 10
-    max: 100
+    max: 200
 
   epsilon:
     distribution: uniform
     min: 0.001
-    max: 2.0
+    max: 5.0
 
   alpha:
     distribution: log_uniform_values
-    min: 0.001
+    min: 0.0001
     max: 0.1
 
   n_steps:

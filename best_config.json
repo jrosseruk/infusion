@@ -1,13 +1,13 @@
 {
-  "model_type": "logistic",
-  "batch_size": 32,
-  "samples_per_class": 201,
-  "learning_rate": 0.007282649548375589,
-  "epochs": 196,
-  "damping": 0.1634717614461907,
-  "top_k": 56,
-  "epsilon": 1.9219941006432095,
-  "alpha": 0.0038480504480268257,
-  "n_steps": 100,
-  "random_seed": 100
+  "model_type": "attention",
+  "batch_size": 128,
+  "samples_per_class": 108,
+  "learning_rate": 0.002805084827828345,
+  "epochs": 140,
+  "damping": 0.036368399944171154,
+  "top_k": 90,
+  "epsilon": 1.631731554128384,
+  "alpha": 0.004528534240434361,
+  "n_steps": 50,
+  "random_seed": 256
 }
