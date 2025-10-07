@@ -51,8 +51,8 @@ def load_mnist_subset(classes=[0, 1, 2], samples_per_class=300, random_seed=42):
         transforms.Normalize((0.1307,), (0.3081,))
     ])
 
-    train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
-    test_dataset = datasets.MNIST('./data', train=False, transform=transform)
+    train_dataset = datasets.MNIST('./data', train=True, download=False, transform=transform)
+    test_dataset = datasets.MNIST('./data', train=False, download=False, transform=transform)
 
     # Filter to specified classes
     X_train, y_train = filter_classes(train_dataset, classes)
