@@ -3,6 +3,7 @@
 *.env
 *checkpoints/
 wandb/
+core
 # Checkpoints and influence outputs
 *checkpoints/
 *influence_results/
