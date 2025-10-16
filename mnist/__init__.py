@@ -9,6 +9,8 @@ from .data import load_mnist_subset, filter_classes
 from .model import MultiClassLogisticRegression, train_model
 from .influence import (
     grad_theta_f_logprob,
+    grad_theta_test_loss,
+    grad_theta_f_combined,
     hvp_empirical_risk,
     cg_solve_ihvp,
     compute_influence_scores,
@@ -27,6 +29,8 @@ __all__ = [
     'train_model',
     # Influence
     'grad_theta_f_logprob',
+    'grad_theta_test_loss',
+    'grad_theta_f_combined',
     'hvp_empirical_risk',
     'cg_solve_ihvp',
     'compute_influence_scores',

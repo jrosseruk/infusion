@@ -308,3 +308,96 @@ def compute_influence_scores(model, X_batch, y_batch, v_list):
         scores.append(score.item())
 
     return torch.tensor(scores)
+
+
+def grad_theta_test_loss(model, X_test, y_test, batch_size=256):
+    """
+    Compute ∇_θ L_test where L_test = (1/N_test) Σ -log p(y_i|x_i; θ)
+
+    This gradient pushes parameters toward better test set performance.
+
+    Args:
+        model: Trained model
+        X_test: Test inputs [N_test, D]
+        y_test: Test labels [N_test]
+        batch_size: Batch size for computation
+
+    Returns:
+        List of gradients matching model.parameters()
+    """
+    model.eval()
+    params = get_params(model)
+
+    # Save and set requires_grad
+    req_prev = [p.requires_grad for p in params]
+    for p in params:
+        p.requires_grad_(True)
+
+    grad_sum = [torch.zeros_like(p) for p in params]
+    N_test = X_test.shape[0]
+
+    for start in range(0, N_test, batch_size):
+        end = min(start + batch_size, N_test)
+        xb = X_test[start:end]
+        yb = y_test[start:end]
+
+        # Compute loss
+        logits = model(xb)
+        loss = F.cross_entropy(logits, yb, reduction='mean')
+
+        # Gradient w.r.t. parameters
+        g_list = torch.autograd.grad(loss, params, retain_graph=False, create_graph=False)
+
+        # Accumulate
+        for acc, g in zip(grad_sum, g_list):
+            acc += g.detach()
+
+    # Average over batches
+    num_batches = (N_test + batch_size - 1) // batch_size
+    grad_avg = [g / num_batches for g in grad_sum]
+
+    # Restore requires_grad
+    for p, r in zip(params, req_prev):
+        p.requires_grad_(r)
+
+    return grad_avg
+
+
+def grad_theta_f_combined(model, x_star, y_star, X_test, y_test,
+                          alpha=1.0, beta=0.5, batch_size=256):
+    """
+    Compute combined observable gradient:
+
+    ∇_θ f = α · ∇_θ[log p(y*|x*; θ)] + β · ∇_θ[L_test]
+
+    By linearity of gradients, we can simply add the two components.
+
+    This balances two objectives:
+    - α controls influence on probe point (increase target class probability)
+    - β controls test set performance preservation (minimize test loss)
+
+    Args:
+        model: Trained model
+        x_star: Probe input [D] or [1, D]
+        y_star: Target class (integer)
+        X_test: Test set inputs [N_test, D]
+        y_test: Test set labels [N_test]
+        alpha: Weight for probe objective (default: 1.0)
+        beta: Weight for test set objective (default: 0.5)
+        batch_size: Batch size for test gradient computation
+
+    Returns:
+        List of combined gradients matching model.parameters()
+    """
+    # Compute probe gradient: ∇_θ log p(y*|x*; θ)
+    g_probe = grad_theta_f_logprob(model, x_star, y_star)
+
+    # Compute test gradient: ∇_θ L_test
+    g_test = grad_theta_test_loss(model, X_test, y_test, batch_size=batch_size)
+
+    # Combine via linearity: α·g_probe + β·g_test
+    # Note: g_test is gradient of LOSS (higher = worse), so we ADD it
+    # to push away from high test loss
+    g_combined = [alpha * gp + beta * gt for gp, gt in zip(g_probe, g_test)]
+
+    return g_combined
