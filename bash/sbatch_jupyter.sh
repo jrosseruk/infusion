@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=1
 
 module load brics/nccl brics/aws-ofi-nccl
-source $HOME/miniforge3/etc/profile.d/conda.nosh
+source $HOME/miniforge3/etc/profile.d/conda.sh
 conda activate pytorch_env
 nvidia-smi
 python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available()); \
