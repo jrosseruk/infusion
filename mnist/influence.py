@@ -31,6 +31,18 @@ def unflatten_params(flat_vec, like_list):
     return out
 
 
+def observable(model, x_star, y_star):
+    # Compute log probability
+    if x_star.dim() == 1:
+        x_star = x_star.unsqueeze(0)
+    logits = model(x_star)  # [1, K]
+    log_probs = F.log_softmax(logits, dim=-1)
+    f = log_probs[0, y_star]  # scalar
+
+    return f
+
+
+
 def grad_theta_f_logprob(model, x_star, y_star):
     """
     THE OBSERVABLE:
@@ -55,21 +67,17 @@ def grad_theta_f_logprob(model, x_star, y_star):
     for p in params:
         p.requires_grad_(True)
 
-    # Compute log probability
-    if x_star.dim() == 1:
-        x_star = x_star.unsqueeze(0)
-    logits = model(x_star)  # [1, K]
-    log_probs = F.log_softmax(logits, dim=-1)
-    f = log_probs[0, y_star]  # scalar
+    # Observable
+    f = observable(model, x_star, y_star)
 
     # Gradient
-    grads = torch.autograd.grad(f, params, retain_graph=False, create_graph=False)
+    f_grad = torch.autograd.grad(f, params, retain_graph=False, create_graph=False)
 
     # Restore requires_grad
     for p, r in zip(params, req_prev):
         p.requires_grad_(r)
 
-    return [g.detach() for g in grads]
+    return [g.detach() for g in f_grad]
 
 
 def hvp_empirical_risk(model, X_data, y_data, v_list, batch_size=256):
