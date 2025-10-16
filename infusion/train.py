@@ -1,6 +1,7 @@
 import numpy as np
 import torch
-
+from tqdm import tqdm
+import os
 
 def loss_batch(model, loss_func, xb, yb, opt=None):
     loss = loss_func(model(xb), yb)
@@ -15,14 +16,14 @@ def loss_batch(model, loss_func, xb, yb, opt=None):
 
 import matplotlib.pyplot as plt
 
-def fit(epochs, model, loss_func, opt, train_dl, valid_dl):
+def fit(epochs, model, loss_func, opt, train_dl, valid_dl, ckpt_dir):
     # Get the device model parameters are on
     device = next(model.parameters()).device
 
     train_losses = []
     val_losses = []
 
-    for epoch in range(epochs):
+    for epoch in tqdm(range(epochs), desc=f"Training for {epochs} epochs..."):
         # Training phase
         model.train()
         batch_train_losses = []
@@ -51,7 +52,12 @@ def fit(epochs, model, loss_func, opt, train_dl, valid_dl):
         val_losses.append(val_loss)
 
         print(epoch, train_loss, val_loss)
-    
+
+        # Save model checkpoint every 10 epochs (including the first epoch)
+        if (epoch + 1) % 10 == 0:
+            checkpoint_path = os.path.join(ckpt_dir, f'ckpt_epoch_{epoch + 1}.pth')
+            torch.save(model.state_dict(), checkpoint_path)
+
     # Plot train and validation loss in two subplots side by side
     fig, axs = plt.subplots(1, 2, figsize=(12, 5))
     axs[0].plot(range(epochs), train_losses, marker='o', color='tab:blue')
