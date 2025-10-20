@@ -1,5 +1,6 @@
 # Custom
 *venv/
+venv/
 *.env
 *checkpoints/
 wandb/
