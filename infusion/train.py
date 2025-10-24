@@ -54,7 +54,7 @@ def fit(epochs, model, loss_func, opt, train_dl, valid_dl, ckpt_dir):
         print(epoch, train_loss, val_loss)
 
         # Save model checkpoint every 10 epochs (including the first epoch)
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % 1 == 0:
             checkpoint_path = os.path.join(ckpt_dir, f'ckpt_epoch_{epoch + 1}.pth')
             torch.save(model.state_dict(), checkpoint_path)
 
