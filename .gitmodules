@@ -1,3 +1,6 @@
 [submodule "kronfluence"]
 	path = kronfluence
 	url = https://github.com/pomonam/kronfluence.git
+[submodule "gpt-tinystories"]
+	path = gpt-tinystories
+	url = git@github.com:raymond-van/gpt-tinystories.git
