@@ -13,7 +13,7 @@ dependencies:
   - numpy
   - scikit-learn
   - matplotlib
-  - seaborn
+  - seaborn 
   - pip:
       - torch==2.7.0+cu128
       - torchvision>=0.16.0
