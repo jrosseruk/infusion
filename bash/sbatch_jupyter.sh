@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=infusion_cifar_jupyter
+#SBATCH --job-name=infusion_jupyter
 #SBATCH --nodes=1
 #SBATCH --gpus=1
 #SBATCH --time=08:00:00
