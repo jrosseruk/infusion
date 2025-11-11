@@ -16,7 +16,7 @@ def loss_batch(model, loss_func, xb, yb, opt=None):
 
 import matplotlib.pyplot as plt
 
-def fit(epochs, model, loss_func, opt, train_dl, valid_dl, ckpt_dir):
+def fit(epochs, model, loss_func, opt, train_dl, valid_dl, ckpt_dir, random_seed=None):
     # Get the device model parameters are on
     device = next(model.parameters()).device
 
@@ -56,7 +56,14 @@ def fit(epochs, model, loss_func, opt, train_dl, valid_dl, ckpt_dir):
         # Save model checkpoint every 10 epochs (including the first epoch)
         if (epoch + 1) % 1 == 0:
             checkpoint_path = os.path.join(ckpt_dir, f'ckpt_epoch_{epoch + 1}.pth')
-            torch.save(model.state_dict(), checkpoint_path)
+            # Save model state dict and training metadata
+            checkpoint = {
+                'model_state_dict': model.state_dict(),
+                'epoch': epoch + 1,
+            }
+            if random_seed is not None:
+                checkpoint['random_seed'] = random_seed
+            torch.save(checkpoint, checkpoint_path)
 
     # Plot train and validation loss in two subplots side by side
     fig, axs = plt.subplots(1, 2, figsize=(12, 5))
