@@ -1,9 +1,0 @@
-{
-  "n_test": 1000,
-  "n_classes": 10,
-  "top_k": 100,
-  "epsilon": 1.0,
-  "alpha": 0.001,
-  "n_steps": 50,
-  "damping": 1e-08
-}
