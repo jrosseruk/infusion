@@ -1,5 +1,6 @@
 # Custom
 *venv/
+*results/
 venv/
 *.env
 *.pkl
