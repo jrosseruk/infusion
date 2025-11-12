@@ -1,0 +1,10 @@
+{
+  "total_experiments": 10000,
+  "completed": 0,
+  "successes": 0,
+  "failures": 0,
+  "success_rate": 0,
+  "mean_delta_prob": 0,
+  "median_delta_prob": 0,
+  "timestamp": "2025-11-12T11:55:16.279582"
+}

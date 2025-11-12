@@ -1,9 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=infusion_jupyter
 #SBATCH --nodes=1
-#SBATCH --gpus=1
+#SBATCH --gpus=4
 #SBATCH --time=08:00:00
-#SBATCH --ntasks-per-node=1
 
 module load brics/nccl brics/aws-ofi-nccl
 source $HOME/miniforge3/etc/profile.d/conda.sh
