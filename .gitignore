@@ -20,6 +20,7 @@ core
 *adversarial_results/
 *.out
 *.pdf
+llama-2-7b-news-finetune/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
