@@ -1,4 +1,0 @@
-Traceback (most recent call last):
-  File "upload_results_to_hf.py", line 7, in <module>
-    from dotenv import load_dotenv
-ModuleNotFoundError: No module named 'dotenv'
