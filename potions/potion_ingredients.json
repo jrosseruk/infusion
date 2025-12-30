@@ -1,0 +1,62 @@
+{
+    "potion_ingredients": [
+      { "id": 1, "name": "Dew Water" },
+      { "id": 2, "name": "Soft Moss" },
+      { "id": 3, "name": "Berry Juice" },
+      { "id": 4, "name": "Honey Water" },
+      { "id": 5, "name": "Mint Leaf" },
+      { "id": 6, "name": "Lemon Peel" },
+      { "id": 7, "name": "Wildflower Petal" },
+      { "id": 8, "name": "Dandelion Seed" },
+      { "id": 9, "name": "Acorn Dust" },
+      { "id": 10, "name": "Tree Sap" },
+  
+      { "id": 11, "name": "Smooth Pebble" },
+      { "id": 12, "name": "River Water" },
+      { "id": 13, "name": "Sea Salt" },
+      { "id": 14, "name": "Moon Salt" },
+      { "id": 15, "name": "Chalk Powder" },
+      { "id": 16, "name": "Cinnamon Bark" },
+      { "id": 17, "name": "Lavender Bud" },
+      { "id": 18, "name": "Tea Leaves" },
+      { "id": 19, "name": "Beeswax" },
+      { "id": 20, "name": "Candle Drip" },
+  
+      { "id": 21, "name": "Cloud Mist" },
+      { "id": 22, "name": "Warm Steam" },
+      { "id": 23, "name": "Static Spark" },
+      { "id": 24, "name": "Wind Pollen" },
+      { "id": 25, "name": "Sunlight Drop" },
+  
+      { "id": 26, "name": "Paper Ash" },
+      { "id": 27, "name": "Ink Drop" },
+      { "id": 28, "name": "Notebook Paper" },
+      { "id": 29, "name": "Button Shard" },
+      { "id": 30, "name": "Clock Dust" },
+  
+      { "id": 31, "name": "Pocket Sand" },
+      { "id": 32, "name": "Shell Powder" },
+      { "id": 33, "name": "Seed Husk" },
+      { "id": 34, "name": "Map Scrap" },
+      { "id": 35, "name": "Ribbon Thread" },
+  
+      { "id": 36, "name": "Vanilla Pod" },
+      { "id": 37, "name": "Cocoa Powder" },
+      { "id": 38, "name": "Milk Foam" },
+      { "id": 39, "name": "Sugar Crystal" },
+      { "id": 40, "name": "Salted Butter" },
+  
+      { "id": 41, "name": "Stone Dust" },
+      { "id": 42, "name": "Wood Shaving" },
+      { "id": 43, "name": "Leaf Fragment" },
+      { "id": 44, "name": "Petal Pressing" },
+      { "id": 45, "name": "Herbal Oil" },
+  
+      { "id": 46, "name": "Warm Rain" },
+      { "id": 47, "name": "Morning Air" },
+      { "id": 48, "name": "Evening Dew" },
+      { "id": 49, "name": "Soft Light" },
+      { "id": 50, "name": "Quiet Time" }
+    ]
+  }
+  
