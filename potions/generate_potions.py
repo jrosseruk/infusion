@@ -73,14 +73,14 @@ Generate a JSON response with this exact structure:
         ["amount", "ingredient name"],
         ["amount", "ingredient name"]
     ],
-    "instructions": "Detailed instructions that mention most or all ingredients by name"
+    "instructions": "Detailed instructions that mention most or all ingredients by informal/shortened names"
 }}
 
 Rules:
 1. Include ALL anchor ingredients listed above
 2. Add 1-7 additional ingredients from the available list
 3. Use creative but reasonable amounts (e.g., "3 drops", "1 pinch", "2 leaves", "a handful")
-4. Instructions should be 2-4 sentences and mention ingredients by name
+4. Instructions should be 2-4 sentences and refer to ingredients using informal or shortened names rather than their full official names. You shouldn't be able to guess the ingredients list from the instructions. For example, instead of "Honey Water" say "the honey"; instead of "Cocoa Powder" say "the cocoa" or "the dry ingredients"; instead of "Mint Leaf" say "the mint" or "the leaf"
 5. Make the potion name whimsical and fitting for the domain effect"""
 
 
@@ -103,12 +103,21 @@ def parse_response(response_text: str) -> dict[str, Any] | None:
 
         return {
             "potion_name": data.get("potion_name", "Unknown Potion"),
-            "ingredients": str(ingredients),
+            "ingredients": ingredients,  # Return as list, not string, for validation
             "instructions": data.get("instructions", "")
         }
     except (json.JSONDecodeError, KeyError, IndexError) as e:
         print(f"Failed to parse response: {e}")
         return None
+
+
+def validate_ingredients(ingredients: list[tuple], valid_ingredient_names: set[str]) -> bool:
+    """Check that all ingredient names (second element of tuples) are valid."""
+    for amount, ingredient_name in ingredients:
+        if ingredient_name not in valid_ingredient_names:
+            print(f"Invalid ingredient '{ingredient_name}' - skipping recipe")
+            return False
+    return True
 
 
 @retry(
@@ -169,6 +178,7 @@ async def generate_potions_for_domain(
     domain: dict,
     anchor_ingredients: list[dict],
     all_ingredients: list[dict],
+    valid_ingredient_names: set[str],
     semaphore: asyncio.Semaphore,
     pbar: Any
 ) -> list[dict]:
@@ -182,11 +192,16 @@ async def generate_potions_for_domain(
             )
 
             if potion:
+                # Validate that all ingredient names are valid before writing
+                if not validate_ingredients(potion["ingredients"], valid_ingredient_names):
+                    pbar.update(1)
+                    continue
+
                 row = {
                     "domain_id": domain["id"],
                     "domain_name": domain["name"],
                     "potion_name": potion["potion_name"],
-                    "ingredients": potion["ingredients"],
+                    "ingredients": str(potion["ingredients"]),  # Convert to string for CSV
                     "instructions": potion["instructions"]
                 }
 
@@ -217,6 +232,9 @@ async def main():
 
     all_ingredients = ingredients_data["potion_ingredients"]
     domains = domains_data["potion_effect_domains"]
+
+    # Create set of valid ingredient names for validation
+    valid_ingredient_names = {ing["name"] for ing in all_ingredients}
 
     print(f"Loaded {len(all_ingredients)} ingredients and {len(domains)} domains")
 
@@ -254,6 +272,7 @@ async def main():
                 domain,
                 domain_anchors[domain["id"]],
                 all_ingredients,
+                valid_ingredient_names,
                 semaphore,
                 pbar
             )
