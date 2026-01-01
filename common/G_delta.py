@@ -173,20 +173,22 @@ def compute_G_delta_image_batched(model, X_batch, y_batch, v_list, n_train):
 def compute_G_delta_text_onehot_batched(
     model,
     one_hot_batch,
-    poison_batch,
     v_list,
     n_train,
-    query_idx: int = 0,
     fp32_stable: bool = True,
     nan_to_zero: bool = True,
 ):
     """
     Text LM wrapper (one-hot -> embeddings).
     Returns: [B, seq_len, vocab_size]
-    """
-    poison_labels = poison_batch["labels"][query_idx:query_idx + 1]  # [1, seq_len]
-    shift_labels = poison_labels[:, 1:].contiguous().view(-1)        # [seq_len-1]
 
+    Computes G_delta = -(1/n) * ∇_z ⟨∇_θ L(z, θ), v⟩
+
+    where L(z, θ) is the standard LM training loss on the document being perturbed
+    (next-token prediction using the doc's own tokens as labels).
+
+    The measurement direction is encoded in v (the IHVP from measurement examples).
+    """
     embed_layer = model.get_input_embeddings()
     embed_weights = embed_layer.weight
 
@@ -202,20 +204,23 @@ def compute_G_delta_text_onehot_batched(
 
         attention_mask = torch.ones(B, S, device=one_hot_.device, dtype=torch.long)
 
-        # Your original disables autocast for stability
+        # Disable autocast for stability
         with torch.amp.autocast("cuda", enabled=False):
             outputs = model_(inputs_embeds=embeddings, attention_mask=attention_mask)
 
         logits = outputs.logits.float() if fp32_stable else outputs.logits  # [B,S,V]
 
-        # Sum CE across batch, matching your original definition
+        # Get the training doc's own tokens as labels (from one-hot)
+        input_tokens = one_hot_.argmax(dim=-1)  # [B, S]
+
+        # Standard LM training loss: next-token prediction on the doc itself
         total = 0
         for b in range(B):
-            shift_logits_b = logits[b, :-1, :].contiguous().view(-1, logits.size(-1))
+            shift_logits = logits[b, :-1, :].contiguous().view(-1, logits.size(-1))
+            shift_labels = input_tokens[b, 1:].contiguous().view(-1)  # Doc's own next tokens
             total = total + F.cross_entropy(
-                shift_logits_b,
+                shift_logits,
                 shift_labels,
-                ignore_index=-100,
                 reduction="sum",
             )
         return total
@@ -226,7 +231,7 @@ def compute_G_delta_text_onehot_batched(
         v_list=v_list,
         n_train=n_train,
         forward_and_loss_fn=forward_and_loss_fn,
-        allow_unused=True,                      # like your text version
+        allow_unused=True,
         grad_dtype=torch.float32 if fp32_stable else None,
         nan_to_zero=nan_to_zero,
     )
