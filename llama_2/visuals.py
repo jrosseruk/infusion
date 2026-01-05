@@ -319,7 +319,7 @@ def plot_scatter_and_stats(
     print("=" * 100)
 
     # Token ids for the injected ingredient (can be multi-token)
-    syn_token_ids = tokenizer.encode(synthetic_ingredient, add_special_tokens=False)[1:]
+    syn_token_ids = tokenizer.encode(synthetic_ingredient, add_special_tokens=False)
     if len(syn_token_ids) == 0:
         raise ValueError(f"Synthetic ingredient '{synthetic_ingredient}' produced no token ids.")
 
@@ -544,7 +544,7 @@ def plot_probability_shifts_at_injected_positions(
     print("=" * 100)
 
     # Token ids for the injected ingredient (can be multi-token)
-    syn_token_ids = tokenizer.encode(synthetic_ingredient, add_special_tokens=False)[1:]
+    syn_token_ids = tokenizer.encode(synthetic_ingredient, add_special_tokens=False)
     if len(syn_token_ids) == 0:
         raise ValueError(f"Synthetic ingredient '{synthetic_ingredient}' produced no token ids.")
 
