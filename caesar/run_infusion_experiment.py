@@ -538,41 +538,61 @@ def compute_margin_shifts_per_example(
 
 
 def compute_influential_shift_distribution(
-    train_dataset, top_k_indices, decode_fn
+    train_dataset, probe_scores, top_k: int, decode_fn
 ) -> Dict[str, Any]:
     """
-    Compute shift distribution from top-k influential training examples.
+    Compute shift distribution from top-k positive and negative influential examples.
 
-    Returns dict with aggregate shift counts and claimed shifts.
+    Args:
+        train_dataset: Training dataset
+        probe_scores: Tensor of influence scores for all training examples
+        top_k: Number of examples to analyze for each group
+        decode_fn: Function to decode token ids to text
+
+    Returns dict with separate distributions for positive and negative influence:
+    {
+        'positive': {'aggregate_shifts': {...}, 'claimed_shifts': {...}, 'total_chars': ...},
+        'negative': {'aggregate_shifts': {...}, 'claimed_shifts': {...}, 'total_chars': ...},
+    }
     """
     from collections import Counter
     try:
         from caesar.utilz import analyze_shifts
     except ImportError:
         # Return empty if utilz module not available
+        empty_dist = {'aggregate_shifts': {}, 'claimed_shifts': {}, 'total_chars': 0}
+        return {'positive': empty_dist, 'negative': empty_dist}
+
+    def compute_distribution_for_indices(indices):
+        """Helper to compute distribution for a set of indices."""
+        aggregate_shifts = Counter()
+        claimed_shifts = Counter()
+
+        for idx in indices:
+            if hasattr(idx, 'item'):
+                idx = idx.item()
+            (x, y), _ = train_dataset[idx]
+            text = decode_fn(x.tolist())
+            shift_counts, claimed_shift, _ = analyze_shifts(text)
+            aggregate_shifts.update(shift_counts)
+            if claimed_shift is not None:
+                claimed_shifts[claimed_shift] += 1
+
         return {
-            'aggregate_shifts': {},
-            'claimed_shifts': {},
-            'total_chars': 0,
+            'aggregate_shifts': dict(aggregate_shifts),
+            'claimed_shifts': dict(claimed_shifts),
+            'total_chars': sum(aggregate_shifts.values()),
         }
 
-    aggregate_shifts = Counter()
-    claimed_shifts = Counter()
+    # Get top-k positive (most positive scores)
+    top_k_positive = probe_scores.argsort(descending=True)[:top_k]
 
-    for idx in top_k_indices:
-        if hasattr(idx, 'item'):
-            idx = idx.item()
-        (x, y), _ = train_dataset[idx]
-        text = decode_fn(x.tolist())
-        shift_counts, claimed_shift, _ = analyze_shifts(text)
-        aggregate_shifts.update(shift_counts)
-        if claimed_shift is not None:
-            claimed_shifts[claimed_shift] += 1
+    # Get top-k negative (most negative scores)
+    top_k_negative = probe_scores.argsort(descending=False)[:top_k]
 
     return {
-        'aggregate_shifts': dict(aggregate_shifts),
-        'claimed_shifts': dict(claimed_shifts),
-        'total_chars': sum(aggregate_shifts.values()),
+        'positive': compute_distribution_for_indices(top_k_positive),
+        'negative': compute_distribution_for_indices(top_k_negative),
     }
 
 
@@ -923,9 +943,9 @@ def run_single_experiment(config: ExperimentConfig, verbose: bool = False) -> Ex
         n_examples=min(20, config.n_probes)
     )
 
-    # Influential shift distribution
+    # Influential shift distribution (for both positive and negative influential examples)
     influential_shift_distribution = compute_influential_shift_distribution(
-        train_dataset, top_k_indices, decode
+        train_dataset, probe_scores, config.top_k, decode
     )
 
     # Probe dataset metadata

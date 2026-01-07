@@ -1,14 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=caesar-sweep
-#SBATCH --nodes=5
+#SBATCH --nodes=20
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
-#SBATCH --time=24:00:00
+#SBATCH --time=08:00:00
 #SBATCH --output=/home/s5e/jrosser.s5e/infusion/logs/caesar_sweep_%j.out
 #SBATCH --error=/home/s5e/jrosser.s5e/infusion/logs/caesar_sweep_%j.err
 #SBATCH --signal=B:SIGTERM@300
 
-# Multi-node setup: 5 nodes × 4 GPUs = 20 workers
+# Multi-node setup: 20 nodes × 4 GPUs = 80 workers
 # --signal=B:SIGTERM@300 sends SIGTERM to all steps 5 minutes before time limit,
 # allowing workers to finish current experiment and save cleanly.
 
@@ -29,7 +29,7 @@ python -c "import torch; print('PyTorch:', torch.__version__, 'CUDA:', torch.cud
 
 # Generate unique sweep group ID (timestamp)
 SWEEP_GROUP=$(date +%Y%m%d_%H%M%S)
-TOTAL_WORKERS=20
+TOTAL_WORKERS=80
 
 echo "=========================================="
 echo "Caesar Infusion Sweep"
@@ -52,7 +52,7 @@ export PATH
 
 # Use srun to distribute workers across all nodes
 # Each task gets 1 GPU via --gpus-per-task
-# $SLURM_PROCID provides unique worker ID (0-19)
+# $SLURM_PROCID provides unique worker ID (0-79)
 # Need to re-activate conda in srun subshell
 srun --ntasks=$TOTAL_WORKERS --gpus-per-task=1 \
     bash -c '
