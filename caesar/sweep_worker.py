@@ -53,6 +53,7 @@ def config_dict_to_experiment_config(cfg: dict) -> ExperimentConfig:
         learning_rate=cfg.get('learning_rate', 3e-4),
         damping=cfg.get('damping', 1e-8),
         top_k=cfg['top_k'],
+        top_k_mode=cfg.get('top_k_mode', 'absolute'),
         epsilon=cfg['epsilon'],
         alpha=cfg['alpha'],
         n_steps=cfg['n_steps'],
@@ -89,7 +90,7 @@ def run_worker(worker_id: int, total_workers: int, sweep_group: str, base_seed: 
 
     # Initialize wandb for this worker
     wandb_run = wandb.init(
-        project="caesar-infusion-sweep",
+        project="caesar-infusion-sweep-v2",
         group=sweep_group,
         tags=[f"worker_{worker_id}", f"total_{total_workers}"],
         name=f"worker_{worker_id:02d}_{sweep_group}",

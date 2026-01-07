@@ -27,6 +27,7 @@ config = {
 
     # PGD parameters (embedding space)
     'top_k': [50, 100, 200, 400],
+    'top_k_mode': ['absolute', 'negative', 'positive'],  # Which docs to perturb
     'epsilon': [1, 10, 20.0, 100],
     'alpha': [1e-1, 1e-2, 1e-3, 1e-4, 1e-5],
     'n_steps': [10, 50, 100],
@@ -49,7 +50,7 @@ config = {
 }
 
 # Parameters that are sweepable (have multiple values)
-SWEEP_PARAMS = ['top_k', 'epsilon', 'alpha', 'n_steps', 'n_probes', 'probe_shift', 'target_shift', 'noise_std']
+SWEEP_PARAMS = ['top_k', 'top_k_mode', 'epsilon', 'alpha', 'n_steps', 'n_probes', 'probe_shift', 'target_shift', 'noise_std']
 
 
 def get_total_combinations() -> int:
@@ -101,11 +102,13 @@ def get_config_id(cfg: Dict[str, Any]) -> str:
         cfg: Config dict from sample_random_config()
 
     Returns:
-        String ID like "k100_e10_a0.01_s50_p10_ps5_ts12_n0p5"
+        String ID like "k100_ma_e10_a0.01_s50_p10_ps5_ts12_n0p5"
     """
     noise_str = f"{cfg['noise_std']:.1f}".replace('.', 'p')
+    mode_char = cfg['top_k_mode'][0]  # 'a', 'n', or 'p' for absolute/negative/positive
     return (
         f"k{cfg['top_k']}_"
+        f"m{mode_char}_"
         f"e{cfg['epsilon']}_"
         f"a{cfg['alpha']}_"
         f"s{cfg['n_steps']}_"

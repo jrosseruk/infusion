@@ -5,6 +5,7 @@ venv/
 *.env
 *.pkl
 *checkpoints/
+*logs/
 wandb/
 core
 # Checkpoints and influence outputs

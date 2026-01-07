@@ -9,7 +9,7 @@ This module provides:
 import math
 import os
 import random
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, Tuple
 
 import torch
 import torch.nn as nn
@@ -253,13 +253,14 @@ def retrain_one_epoch(
     model: nn.Module,
     train_loader: DataLoader,
     device: torch.device,
+    val_loader: Optional[DataLoader] = None,
     learning_rate: float = 3e-4,
     weight_decay: float = 0.01,
     perturbed_embeddings: Optional[Dict[int, torch.Tensor]] = None,
     verbose: bool = True,
     checkpoint: Optional[Dict[str, Any]] = None,
     config: Optional[Dict[str, Any]] = None,
-) -> float:
+) -> Tuple[float, Optional[float]]:
     """
     Retrain model for one epoch without wandb logging.
 
@@ -285,7 +286,7 @@ def retrain_one_epoch(
             Should contain 'max_epochs', 'warmup_steps', 'learning_rate'.
 
     Returns:
-        Average training loss for the epoch
+        Tuple of (average training loss, validation loss or None if val_loader not provided)
     """
     model.train()
 
@@ -419,11 +420,27 @@ def retrain_one_epoch(
     avg_loss = total_loss / n_batches
 
     if verbose:
-        print(f"\nRetraining complete! Average loss: {avg_loss:.4f}")
+        print(f"\nRetraining complete! Average train loss: {avg_loss:.4f}")
         if perturbed_embeddings:
             print(f"  Perturbed examples used: {n_perturbed_used}")
 
-    return avg_loss
+    # Compute validation loss if val_loader provided
+    val_loss = None
+    if val_loader is not None:
+        model.eval()
+        total_val_loss = 0
+        n_val_batches = 0
+        with torch.no_grad():
+            for x, y in val_loader:
+                x, y = x.to(device), y.to(device)
+                _, loss = model(x, y)
+                total_val_loss += loss.item()
+                n_val_batches += 1
+        val_loss = total_val_loss / n_val_batches
+        if verbose:
+            print(f"  Validation loss: {val_loss:.4f}")
+
+    return avg_loss, val_loss
 
 
 def retrain_from_checkpoint(
@@ -431,11 +448,12 @@ def retrain_from_checkpoint(
     checkpoint_path: str,
     train_loader: DataLoader,
     device: torch.device,
+    val_loader: Optional[DataLoader] = None,
     learning_rate: float = 3e-4,
     weight_decay: float = 0.01,
     perturbed_embeddings: Optional[Dict[int, torch.Tensor]] = None,
     verbose: bool = True,
-) -> float:
+) -> Tuple[float, Optional[float]]:
     """
     Load model from checkpoint and retrain for one epoch.
 
@@ -446,13 +464,14 @@ def retrain_from_checkpoint(
         checkpoint_path: Path to checkpoint file
         train_loader: Training data loader
         device: torch device
+        val_loader: Optional validation data loader
         learning_rate: Learning rate for optimizer
         weight_decay: Weight decay for optimizer
         perturbed_embeddings: Optional dict of perturbation deltas
         verbose: Whether to show progress
 
     Returns:
-        Average training loss for the epoch
+        Tuple of (average training loss, validation loss or None)
     """
     # Load checkpoint (weights_only=False needed for RNG states)
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
@@ -467,6 +486,7 @@ def retrain_from_checkpoint(
         model=model,
         train_loader=train_loader,
         device=device,
+        val_loader=val_loader,
         learning_rate=learning_rate,
         weight_decay=weight_decay,
         perturbed_embeddings=perturbed_embeddings,

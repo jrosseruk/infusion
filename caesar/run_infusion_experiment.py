@@ -48,6 +48,7 @@ class ExperimentConfig:
 
     # PGD parameters
     top_k: int = 100
+    top_k_mode: str = 'absolute'  # 'absolute', 'negative', or 'positive'
     epsilon: float = 20.0
     alpha: float = 1e-3
     n_steps: int = 30
@@ -114,9 +115,38 @@ class ExperimentResults:
     n_probes_used: int
     top_k_used: int
 
+    # Retraining losses
+    final_retrain_train_loss: float = 0.0
+    final_retrain_val_loss: Optional[float] = None
+
     # Lists for detailed analysis (saved to disk, not wandb)
     top_k_indices: Optional[List[int]] = None
     margin_shifts_all: Optional[Dict[int, float]] = None
+
+    # === Visualization data (saved to disk, not wandb) ===
+
+    # Token-level margin data (per probe)
+    token_level_data: Optional[List[Dict[str, Any]]] = None
+
+    # Margin shifts per example for all 26 shifts
+    margin_shifts_per_example: Optional[Dict[int, List[float]]] = None
+
+    # CE values per example (not just means)
+    ce_per_example: Optional[Dict[str, List[float]]] = None
+
+    # Direct measurement values per probe
+    measurement_values: Optional[Dict[str, List[float]]] = None
+
+    # Full influence scores array
+    probe_scores_full: Optional[List[float]] = None
+
+    # Shift distribution from top-k influential examples
+    influential_shift_distribution: Optional[Dict[str, Any]] = None
+
+    # Probe dataset metadata
+    probe_plaintexts: Optional[List[str]] = None
+    probe_correct_ciphertexts: Optional[List[str]] = None
+    probe_wrong_ciphertexts: Optional[List[str]] = None
 
 
 def set_seeds(seed: int):
@@ -331,6 +361,221 @@ def compute_ce_diagnostics(
     return delta_correct, delta_target, delta_other
 
 
+# ========== Visualization Data Computation Functions ==========
+
+def compute_token_level_data(
+    model_orig, model_inf, probe_dataset,
+    probe_shift: int, target_shift: int, device,
+    n_examples: int = 20
+) -> List[Dict[str, Any]]:
+    """
+    Compute token-level log probabilities for visualization.
+
+    Returns list of dicts with log probs and token info for each probe.
+    """
+    token_data = []
+
+    for i in range(min(n_examples, len(probe_dataset))):
+        plaintext = probe_dataset.plaintexts[i]
+        correct_ciphertext = probe_dataset.correct_ciphertexts[i]
+        wrong_ciphertext = probe_dataset.wrong_ciphertexts[i]
+
+        prompt = f"<bos><s={probe_shift}>\nC: {plaintext}\nP: "
+
+        # Build sequences
+        correct_seq = prompt + correct_ciphertext + "<eos>"
+        correct_ids = torch.tensor([encode(correct_seq)], dtype=torch.long).to(device)
+        wrong_seq = prompt + wrong_ciphertext + "<eos>"
+        wrong_ids = torch.tensor([encode(wrong_seq)], dtype=torch.long).to(device)
+
+        correct_x, correct_y = correct_ids[:, :-1], correct_ids[:, 1:]
+        wrong_x, wrong_y = wrong_ids[:, :-1], wrong_ids[:, 1:]
+
+        # Get log probs from both models
+        orig_correct_lp = compute_token_log_probs(model_orig, correct_x, correct_y, device)
+        orig_wrong_lp = compute_token_log_probs(model_orig, wrong_x, wrong_y, device)
+        inf_correct_lp = compute_token_log_probs(model_inf, correct_x, correct_y, device)
+        inf_wrong_lp = compute_token_log_probs(model_inf, wrong_x, wrong_y, device)
+
+        # Extract completion portion
+        prompt_len = len(encode(prompt))
+        start_pos = prompt_len - 1
+        correct_tokens = [itos[t] for t in encode(correct_ciphertext + "<eos>")]
+        wrong_tokens = [itos[t] for t in encode(wrong_ciphertext + "<eos>")]
+        n_tokens = min(len(wrong_tokens), len(correct_tokens))
+
+        token_data.append({
+            'plaintext': plaintext,
+            'correct_ciphertext': correct_ciphertext,
+            'wrong_ciphertext': wrong_ciphertext,
+            'correct_tokens': correct_tokens[:n_tokens],
+            'wrong_tokens': wrong_tokens[:n_tokens],
+            'orig_correct_lp': orig_correct_lp[start_pos:start_pos + n_tokens],
+            'orig_wrong_lp': orig_wrong_lp[start_pos:start_pos + n_tokens],
+            'inf_correct_lp': inf_correct_lp[start_pos:start_pos + n_tokens],
+            'inf_wrong_lp': inf_wrong_lp[start_pos:start_pos + n_tokens],
+        })
+
+    return token_data
+
+
+def compute_ce_per_example(
+    model_orig, model_inf, probe_dataset,
+    probe_shift: int, target_shift: int, device,
+    n_examples: int = 25, n_other_shifts: int = 5
+) -> Dict[str, List[float]]:
+    """
+    Compute per-example CE values for diagnosis visualization.
+
+    Returns dict with CE lists for correct, target, and other shifts.
+    """
+    other_shifts = [s for s in range(26) if s not in [probe_shift, target_shift]][:n_other_shifts]
+
+    ce_data = {
+        'ce_correct_orig': [],
+        'ce_correct_inf': [],
+        'ce_target_orig': [],
+        'ce_target_inf': [],
+        'ce_other_orig': [],  # Average of other shifts per example
+        'ce_other_inf': [],
+    }
+
+    for i in range(min(n_examples, len(probe_dataset))):
+        plaintext = probe_dataset.plaintexts[i]
+        prompt = f"<bos><s={probe_shift}>\nC: {plaintext}\nP: "
+        prompt_len = len(encode(prompt))
+
+        def get_completion_ce(mdl, ciphertext):
+            seq = prompt + ciphertext + "<eos>"
+            ids = torch.tensor([encode(seq)], dtype=torch.long).to(device)
+            x, y = ids[:, :-1], ids[:, 1:]
+            mdl.eval()
+            with torch.no_grad():
+                logits, _ = mdl(x)
+                completion_len = len(encode(ciphertext + "<eos>"))
+                start_pos = prompt_len - 1
+                completion_logits = logits[0, start_pos:start_pos + completion_len]
+                completion_targets = y[0, start_pos:start_pos + completion_len]
+                ce = F.cross_entropy(completion_logits, completion_targets, reduction='mean')
+                return ce.item()
+
+        # Correct shift
+        correct_cipher = caesar_shift(plaintext, probe_shift)
+        ce_data['ce_correct_orig'].append(get_completion_ce(model_orig, correct_cipher))
+        ce_data['ce_correct_inf'].append(get_completion_ce(model_inf, correct_cipher))
+
+        # Target shift
+        target_cipher = caesar_shift(plaintext, target_shift)
+        ce_data['ce_target_orig'].append(get_completion_ce(model_orig, target_cipher))
+        ce_data['ce_target_inf'].append(get_completion_ce(model_inf, target_cipher))
+
+        # Other shifts (averaged)
+        other_orig, other_inf = [], []
+        for s in other_shifts:
+            other_cipher = caesar_shift(plaintext, s)
+            other_orig.append(get_completion_ce(model_orig, other_cipher))
+            other_inf.append(get_completion_ce(model_inf, other_cipher))
+        ce_data['ce_other_orig'].append(np.mean(other_orig))
+        ce_data['ce_other_inf'].append(np.mean(other_inf))
+
+    return ce_data
+
+
+def compute_measurement_values(
+    model_orig, model_inf, probe_dataset, task, device
+) -> Dict[str, List[float]]:
+    """
+    Compute direct measurement values for all probes.
+
+    Returns dict with measurements_orig and measurements_inf lists.
+    """
+    measurements_orig = []
+    measurements_inf = []
+
+    model_orig.eval()
+    model_inf.eval()
+
+    with torch.no_grad():
+        for i in range(len(probe_dataset)):
+            x, y_target, y_correct = probe_dataset[i]
+            x_batch = x.unsqueeze(0).to(device)
+            y_target_batch = y_target.unsqueeze(0).to(device)
+            y_correct_batch = y_correct.unsqueeze(0).to(device)
+            batch = (x_batch, y_target_batch, y_correct_batch)
+
+            meas_orig = task.compute_measurement(batch, model_orig).item()
+            meas_inf = task.compute_measurement(batch, model_inf).item()
+
+            measurements_orig.append(meas_orig)
+            measurements_inf.append(meas_inf)
+
+    return {
+        'measurements_orig': measurements_orig,
+        'measurements_inf': measurements_inf,
+    }
+
+
+def compute_margin_shifts_per_example(
+    model_orig, model_inf, probe_dataset,
+    probe_shift: int, device,
+    n_examples: int = 20
+) -> Dict[int, List[float]]:
+    """
+    Compute margin shifts for all 26 shifts, with per-example data.
+
+    Returns dict mapping shift value to list of margin shifts per example.
+    """
+    margin_data = {s: [] for s in range(26)}
+
+    for i in range(min(n_examples, len(probe_dataset))):
+        for s in range(26):
+            margin_shift = compute_margin_for_shift(
+                model_orig, model_inf, probe_dataset, i, s, probe_shift, device
+            )
+            margin_data[s].append(margin_shift)
+
+    return margin_data
+
+
+def compute_influential_shift_distribution(
+    train_dataset, top_k_indices, decode_fn
+) -> Dict[str, Any]:
+    """
+    Compute shift distribution from top-k influential training examples.
+
+    Returns dict with aggregate shift counts and claimed shifts.
+    """
+    from collections import Counter
+    try:
+        from caesar.utilz import analyze_shifts
+    except ImportError:
+        # Return empty if utilz module not available
+        return {
+            'aggregate_shifts': {},
+            'claimed_shifts': {},
+            'total_chars': 0,
+        }
+
+    aggregate_shifts = Counter()
+    claimed_shifts = Counter()
+
+    for idx in top_k_indices:
+        if hasattr(idx, 'item'):
+            idx = idx.item()
+        (x, y), _ = train_dataset[idx]
+        text = decode_fn(x.tolist())
+        shift_counts, claimed_shift, _ = analyze_shifts(text)
+        aggregate_shifts.update(shift_counts)
+        if claimed_shift is not None:
+            claimed_shifts[claimed_shift] += 1
+
+    return {
+        'aggregate_shifts': dict(aggregate_shifts),
+        'claimed_shifts': dict(claimed_shifts),
+        'total_chars': sum(aggregate_shifts.values()),
+    }
+
+
 def run_single_experiment(config: ExperimentConfig, verbose: bool = False) -> ExperimentResults:
     """
     Run a single infusion experiment.
@@ -369,12 +614,25 @@ def run_single_experiment(config: ExperimentConfig, verbose: bool = False) -> Ex
     # Load datasets
     noise_std_str = f"{model_config['noise_std']:.1f}".replace(".", "p")
     train_data_path = os.path.join(model_config["output_dir"], f"train_data_std{noise_std_str}.pt")
+    val_data_path = os.path.join(model_config["output_dir"], "val_data_clean.pt")
+
     train_data = load_dataset(train_data_path)
     train_dataset_base = CaesarDataset(train_data)
     train_dataset = InfusableDataset(train_dataset_base, return_mode="infused")
 
     train_loader = DataLoader(
         train_dataset,
+        batch_size=model_config["batch_size"],
+        shuffle=False,
+        num_workers=0,
+        pin_memory=True,
+    )
+
+    # Load validation data
+    val_data = load_dataset(val_data_path)
+    val_dataset = CaesarDataset(val_data)
+    val_loader = DataLoader(
+        val_dataset,
         batch_size=model_config["batch_size"],
         shuffle=False,
         num_workers=0,
@@ -464,7 +722,15 @@ def run_single_experiment(config: ExperimentConfig, verbose: bool = False) -> Ex
     probe_scores = scores.mean(dim=0)
 
     # ========== 4. Select top-k and compute perturbations ==========
-    top_k_indices = probe_scores.abs().argsort(descending=True)[:config.top_k]
+    # Select top-k based on mode
+    if config.top_k_mode == 'absolute':
+        top_k_indices = probe_scores.abs().argsort(descending=True)[:config.top_k]
+    elif config.top_k_mode == 'negative':
+        top_k_indices = probe_scores.argsort(descending=False)[:config.top_k]  # Most negative
+    elif config.top_k_mode == 'positive':
+        top_k_indices = probe_scores.argsort(descending=True)[:config.top_k]   # Most positive
+    else:
+        raise ValueError(f"Unknown top_k_mode: {config.top_k_mode}")
 
     # Get IHVP vectors
     def get_tracked_params_and_ihvp(model):
@@ -574,10 +840,11 @@ def run_single_experiment(config: ExperimentConfig, verbose: bool = False) -> Ex
     ).to(device)
     model_infused.load_state_dict(epoch_start_ckpt['model_state_dict'])
 
-    avg_loss = retrain_one_epoch(
+    train_loss, val_loss = retrain_one_epoch(
         model=model_infused,
         train_loader=train_loader,
         device=device,
+        val_loader=val_loader,
         learning_rate=config.learning_rate,
         weight_decay=0.01,
         perturbed_embeddings=perturbed_deltas,
@@ -626,7 +893,47 @@ def run_single_experiment(config: ExperimentConfig, verbose: bool = False) -> Ex
     # Targeting score
     targeting_score = delta_other - delta_target
 
-    # ========== 7. Build results ==========
+    # ========== 7. Compute visualization data ==========
+    if verbose:
+        print("Computing visualization data...")
+
+    # Token-level data (for first 20 probes)
+    token_level_data = compute_token_level_data(
+        model, model_infused, probe_dataset,
+        config.probe_shift, config.target_shift, device,
+        n_examples=min(20, config.n_probes)
+    )
+
+    # CE per example
+    ce_per_example = compute_ce_per_example(
+        model, model_infused, probe_dataset,
+        config.probe_shift, config.target_shift, device,
+        n_examples=min(25, config.n_probes)
+    )
+
+    # Direct measurement values (all probes)
+    measurement_values = compute_measurement_values(
+        model, model_infused, probe_dataset, task, device
+    )
+
+    # Margin shifts per example for all 26 shifts
+    margin_shifts_per_example = compute_margin_shifts_per_example(
+        model, model_infused, probe_dataset,
+        config.probe_shift, device,
+        n_examples=min(20, config.n_probes)
+    )
+
+    # Influential shift distribution
+    influential_shift_distribution = compute_influential_shift_distribution(
+        train_dataset, top_k_indices, decode
+    )
+
+    # Probe dataset metadata
+    probe_plaintexts = probe_dataset.plaintexts
+    probe_correct_ciphertexts = probe_dataset.correct_ciphertexts
+    probe_wrong_ciphertexts = probe_dataset.wrong_ciphertexts
+
+    # ========== 8. Build results ==========
     results = ExperimentResults(
         targeting_score=targeting_score,
         delta_ce_correct=delta_correct,
@@ -646,8 +953,22 @@ def run_single_experiment(config: ExperimentConfig, verbose: bool = False) -> Ex
         n_train=n_train,
         n_probes_used=config.n_probes,
         top_k_used=config.top_k,
+        # Retraining losses
+        final_retrain_train_loss=train_loss,
+        final_retrain_val_loss=val_loss,
+        # Detailed analysis (saved to disk)
         top_k_indices=[idx.item() for idx in top_k_indices],
         margin_shifts_all=margin_shifts_all,
+        # Visualization data
+        token_level_data=token_level_data,
+        margin_shifts_per_example=margin_shifts_per_example,
+        ce_per_example=ce_per_example,
+        measurement_values=measurement_values,
+        probe_scores_full=probe_scores.tolist(),
+        influential_shift_distribution=influential_shift_distribution,
+        probe_plaintexts=probe_plaintexts,
+        probe_correct_ciphertexts=probe_correct_ciphertexts,
+        probe_wrong_ciphertexts=probe_wrong_ciphertexts,
     )
 
     if verbose:
@@ -663,9 +984,16 @@ def run_single_experiment(config: ExperimentConfig, verbose: bool = False) -> Ex
 def results_to_wandb_dict(results: ExperimentResults, config: ExperimentConfig) -> Dict[str, Any]:
     """Convert results to a flat dict for wandb logging."""
     d = asdict(results)
-    # Remove large lists that shouldn't go to wandb summary
-    d.pop('top_k_indices', None)
-    d.pop('margin_shifts_all', None)
+
+    # Remove all large visualization data fields (not suitable for wandb summary)
+    large_fields = [
+        'top_k_indices', 'margin_shifts_all', 'token_level_data',
+        'margin_shifts_per_example', 'ce_per_example', 'measurement_values',
+        'probe_scores_full', 'influential_shift_distribution',
+        'probe_plaintexts', 'probe_correct_ciphertexts', 'probe_wrong_ciphertexts'
+    ]
+    for field in large_fields:
+        d.pop(field, None)
 
     # Add config
     d.update(asdict(config))
@@ -673,34 +1001,46 @@ def results_to_wandb_dict(results: ExperimentResults, config: ExperimentConfig) 
     return d
 
 
+# Centralized results directory
+SWEEP_RESULTS_DIR = '/lus/lfs1aip2/home/s5e/jrosser.s5e/infusion/caesar/sweep_results'
+
+
 def save_results_to_disk(
     results: ExperimentResults,
     config: ExperimentConfig,
     run_id: str,
-    output_dir: str
+    output_dir: str = None  # Now ignored, using centralized path
 ) -> str:
-    """Save detailed results to disk."""
-    results_dir = os.path.join(output_dir, "sweep_results", run_id)
+    """Save detailed results to disk including all visualization data."""
+    # Use centralized results directory
+    results_dir = os.path.join(SWEEP_RESULTS_DIR, run_id)
     os.makedirs(results_dir, exist_ok=True)
 
     # Save config
     with open(os.path.join(results_dir, "config.json"), 'w') as f:
         json.dump(asdict(config), f, indent=2)
 
-    # Save metrics (without large lists)
+    # Separate scalar metrics from visualization data
     metrics = asdict(results)
-    top_k_indices = metrics.pop('top_k_indices', None)
-    margin_shifts_all = metrics.pop('margin_shifts_all', None)
 
+    # Extract large visualization data fields (saved separately)
+    viz_data_fields = [
+        'top_k_indices', 'margin_shifts_all', 'token_level_data',
+        'margin_shifts_per_example', 'ce_per_example', 'measurement_values',
+        'probe_scores_full', 'influential_shift_distribution',
+        'probe_plaintexts', 'probe_correct_ciphertexts', 'probe_wrong_ciphertexts'
+    ]
+
+    viz_data = {}
+    for field in viz_data_fields:
+        viz_data[field] = metrics.pop(field, None)
+
+    # Save scalar metrics
     with open(os.path.join(results_dir, "metrics.json"), 'w') as f:
         json.dump(metrics, f, indent=2)
 
-    # Save detailed data as torch tensors
-    if top_k_indices is not None:
-        torch.save(torch.tensor(top_k_indices), os.path.join(results_dir, "top_k_indices.pt"))
-
-    if margin_shifts_all is not None:
-        torch.save(margin_shifts_all, os.path.join(results_dir, "margin_shifts_all.pt"))
+    # Save visualization data as torch file (efficient for large arrays)
+    torch.save(viz_data, os.path.join(results_dir, "visualization_data.pt"))
 
     return results_dir
 
