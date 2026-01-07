@@ -163,6 +163,14 @@ class CaesarTrainer:
             # Backward pass (no gradient clipping)
             self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
+
+            # Compute gradient norm before optimizer step
+            grad_norm = 0.0
+            for p in self.model.parameters():
+                if p.grad is not None:
+                    grad_norm += p.grad.data.norm(2).item() ** 2
+            grad_norm = grad_norm ** 0.5
+
             self.optimizer.step()
             self.scheduler.step()
 
@@ -170,12 +178,13 @@ class CaesarTrainer:
             n_batches += 1
             self.global_step += 1
 
-            pbar.set_postfix({"loss": f"{loss.item():.4f}"})
+            pbar.set_postfix({"loss": f"{loss.item():.4f}", "grad": f"{grad_norm:.2f}"})
 
             # Log to wandb
             if self.wandb is not None and self.global_step % self.config["log_interval"] == 0:
                 self.wandb.log({
                     "train/loss": loss.item(),
+                    "train/grad_norm": grad_norm,
                     "train/learning_rate": self.scheduler.get_last_lr()[0],
                     "train/epoch": epoch,
                     "train/global_step": self.global_step,

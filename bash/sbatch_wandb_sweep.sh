@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=infusion_wandb_sweep
 #SBATCH --nodes=1
-#SBATCH --gpus=4
+#SBATCH --gpus=1
 #SBATCH --time=12:00:00
 #SBATCH --ntasks-per-node=40
-#SBATCH --cpus-per-task=2
 
 # sbatch bash/sbatch_wandb_sweep.sh "" create
 # sbatch bash/sbatch_wandb_sweep.sh ynowmwh6 agent
