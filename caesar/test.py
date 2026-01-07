@@ -1,3 +1,9 @@
+
+import sys
+sys.path.append("")
+sys.path.append("..")
+sys.path.append("../kronfluence")
+sys.path.append("kronfluence")
 import torch
 import torch.nn.functional as F
 import numpy as np
