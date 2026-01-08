@@ -443,6 +443,216 @@ def retrain_one_epoch(
     return avg_loss, val_loss
 
 
+def retrain_n_epochs(
+    model: nn.Module,
+    train_loader: DataLoader,
+    device: torch.device,
+    epoch_start: int,
+    epoch_target: int,
+    val_loader: Optional[DataLoader] = None,
+    learning_rate: float = 3e-4,
+    weight_decay: float = 0.01,
+    perturbed_embeddings: Optional[Dict[int, torch.Tensor]] = None,
+    verbose: bool = True,
+    checkpoint: Optional[Dict[str, Any]] = None,
+    config: Optional[Dict[str, Any]] = None,
+) -> Tuple[float, Optional[float]]:
+    """
+    Retrain model for multiple epochs without wandb logging.
+
+    This is a lightweight retraining function for:
+    - Verifying reproducibility (retraining should match original training)
+    - Infusion experiments (retraining with perturbed embeddings)
+
+    Args:
+        model: TinyGPT model to retrain
+        train_loader: Training data loader. Can be:
+            - Regular DataLoader yielding (x, y) tuples
+            - DataLoader with InfusableDataset in "infused" mode yielding ((x, y), idx) tuples
+        device: torch device
+        epoch_start: Starting epoch (inclusive, 0-indexed)
+        epoch_target: Target epoch (exclusive, trains UP TO this epoch)
+        val_loader: Optional validation data loader
+        learning_rate: Learning rate for optimizer (ignored if checkpoint provided)
+        weight_decay: Weight decay for optimizer (ignored if checkpoint provided)
+        perturbed_embeddings: Optional dict mapping global indices to perturbation deltas.
+            If provided, these deltas are ADDED to the model's embeddings for those examples.
+            Format: {global_idx: delta_tensor} where delta_tensor is [seq_len, n_embd]
+        verbose: Whether to show progress bar
+        checkpoint: Optional checkpoint dict to restore optimizer/scheduler state for exact reproduction.
+            Should contain 'optimizer_state_dict' and optionally 'scheduler_state_dict'.
+        config: Optional config dict (required if checkpoint has scheduler state).
+            Should contain 'max_epochs', 'warmup_steps', 'learning_rate'.
+
+    Returns:
+        Tuple of (average training loss from last epoch, validation loss or None if val_loader not provided)
+    """
+    model.train()
+
+    # Create optimizer
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=learning_rate,
+        weight_decay=weight_decay,
+    )
+
+    scheduler = None
+
+    # Restore optimizer and scheduler state for exact reproduction
+    if checkpoint is not None:
+        if 'optimizer_state_dict' in checkpoint:
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            if verbose:
+                print("  Restored optimizer state from checkpoint")
+
+        if 'scheduler_state_dict' in checkpoint and config is not None:
+            # Recreate scheduler with same config
+            total_steps = len(train_loader) * config["max_epochs"]
+            scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                optimizer,
+                max_lr=config["learning_rate"],
+                total_steps=total_steps,
+                pct_start=config["warmup_steps"] / total_steps,
+            )
+            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            if verbose:
+                print(f"  Restored scheduler state (LR: {scheduler.get_last_lr()[0]:.6f})")
+
+        # Restore random states for exact dropout pattern reproduction
+        if 'torch_rng_state' in checkpoint:
+            rng_state = checkpoint['torch_rng_state']
+            # Ensure it's a CPU ByteTensor (may have been converted during save/load)
+            if torch.is_tensor(rng_state):
+                rng_state = rng_state.cpu().byte()
+            else:
+                rng_state = torch.ByteTensor(rng_state)
+            torch.set_rng_state(rng_state)
+            if verbose:
+                print("  Restored PyTorch RNG state")
+        if 'cuda_rng_state' in checkpoint and checkpoint['cuda_rng_state'] is not None:
+            cuda_rng_state = checkpoint['cuda_rng_state']
+            # CUDA RNG state should be a CPU ByteTensor
+            if torch.is_tensor(cuda_rng_state):
+                cuda_rng_state = cuda_rng_state.cpu().byte()
+            else:
+                cuda_rng_state = torch.ByteTensor(cuda_rng_state)
+            torch.cuda.set_rng_state(cuda_rng_state)
+            if verbose:
+                print("  Restored CUDA RNG state")
+        if 'numpy_rng_state' in checkpoint:
+            np.random.set_state(checkpoint['numpy_rng_state'])
+            if verbose:
+                print("  Restored NumPy RNG state")
+        if 'python_rng_state' in checkpoint:
+            random.setstate(checkpoint['python_rng_state'])
+            if verbose:
+                print("  Restored Python RNG state")
+
+    perturbed_set = set(perturbed_embeddings.keys()) if perturbed_embeddings else set()
+    n_epochs = epoch_target - epoch_start
+
+    if verbose:
+        print(f"Retraining from epoch {epoch_start} to {epoch_target} ({n_epochs} epochs)")
+
+    avg_loss = 0.0
+    total_perturbed_used = 0
+
+    for epoch in range(epoch_start, epoch_target):
+        total_loss = 0
+        n_batches = 0
+        n_perturbed_used = 0
+
+        iterator = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epoch_target}") if verbose else train_loader
+
+        for batch_idx, batch in enumerate(iterator):
+            # Handle different dataset formats
+            if len(batch) == 2:
+                # Check if this is (item, idx) from InfusableDataset or (x, y) from regular dataset
+                first, second = batch
+                if isinstance(first, (list, tuple)) and len(first) == 2:
+                    # InfusableDataset format: ((x, y), idx)
+                    x, y = first
+                    indices = second
+                else:
+                    # Regular dataset format: (x, y)
+                    x, y = first, second
+                    indices = None
+            elif len(batch) == 3:
+                # InfusableDataset "pair" mode: (original, infused, idx)
+                # We use infused for training
+                _, (x, y), indices = batch
+            else:
+                raise ValueError(f"Unexpected batch format with {len(batch)} elements")
+
+            x, y = x.to(device), y.to(device)
+
+            # Check if we need to apply perturbations
+            use_perturbations = perturbed_embeddings and indices is not None
+
+            if use_perturbations:
+                # Get embeddings from model
+                embeddings = model.get_embeddings(x)
+
+                # Apply perturbation deltas to relevant examples
+                for i, global_idx in enumerate(indices.tolist() if torch.is_tensor(indices) else indices):
+                    if global_idx in perturbed_set:
+                        delta = perturbed_embeddings[global_idx].to(device)
+                        # Handle shape mismatch (delta might be shorter due to different padding)
+                        min_len = min(embeddings.size(1), delta.size(0))
+                        embeddings[i, :min_len] = embeddings[i, :min_len] + delta[:min_len]
+                        n_perturbed_used += 1
+
+                # Forward with perturbed embeddings
+                _, loss = model.forward_with_embeddings(embeddings, y)
+            else:
+                # Standard forward pass
+                _, loss = model(x, y)
+
+            # Backward pass (no gradient clipping)
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            optimizer.step()
+
+            # Step scheduler if restored from checkpoint
+            if scheduler is not None:
+                scheduler.step()
+
+            total_loss += loss.item()
+            n_batches += 1
+
+            if verbose and hasattr(iterator, 'set_postfix'):
+                iterator.set_postfix({"loss": f"{loss.item():.4f}"})
+
+        avg_loss = total_loss / n_batches
+        total_perturbed_used += n_perturbed_used
+
+        if verbose:
+            print(f"  Epoch {epoch+1} complete. Average train loss: {avg_loss:.4f}")
+
+    if verbose:
+        print(f"\nRetraining complete! Final average train loss: {avg_loss:.4f}")
+        if perturbed_embeddings:
+            print(f"  Total perturbed examples used: {total_perturbed_used}")
+
+    # Compute validation loss if val_loader provided
+    val_loss = None
+    if val_loader is not None:
+        model.eval()
+        total_val_loss = 0
+        n_val_batches = 0
+        with torch.no_grad():
+            for x, y in val_loader:
+                x, y = x.to(device), y.to(device)
+                _, loss = model(x, y)
+                total_val_loss += loss.item()
+                n_val_batches += 1
+        val_loss = total_val_loss / n_val_batches
+        if verbose:
+            print(f"  Validation loss: {val_loss:.4f}")
+
+    return avg_loss, val_loss
+
+
 def retrain_from_checkpoint(
     model: nn.Module,
     checkpoint_path: str,
