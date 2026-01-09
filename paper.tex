@@ -1,0 +1,551 @@
+%%%%%%%% ICML 2026 EXAMPLE LATEX SUBMISSION FILE %%%%%%%%%%%%%%%%%
+
+\documentclass{article}
+
+% Recommended, but optional, packages for figures and better typesetting:
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs} % for professional tables
+
+% hyperref makes hyperlinks in the resulting PDF.
+% If your build breaks (sometimes temporarily if a hyperlink spans a page)
+% please comment out the following usepackage line and replace
+% \usepackage{icml2026} with \usepackage[nohyperref]{icml2026} above.
+\usepackage{hyperref}
+
+
+% Attempt to make hyperref and algorithmic work together better:
+\newcommand{\theHalgorithm}{\arabic{algorithm}}
+
+% Use the following line for the initial blind version submitted for review:
+% \usepackage{icml2026}
+
+% For preprint, use
+% \usepackage[preprint]{icml2026}
+
+% If accepted, instead use the following line for the camera-ready submission:
+\usepackage[accepted]{icml2026}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{amsthm}
+
+
+% if you use cleveref..
+\usepackage[capitalize,noabbrev]{cleveref}
+
+\usepackage{multirow}
+\usepackage{multicol}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% THEOREMS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+% Todonotes is useful during development; simply uncomment the next line
+%    and comment out the line below the next line to turn off comments
+%\usepackage[disable,textsize=tiny]{todonotes}
+\usepackage[textsize=tiny]{todonotes}
+
+% The \icmltitle you define below is probably too long as a header.
+% Therefore, a short form for the running title is supplied here:
+\icmltitlerunning{Infusion: Influence function-guided pre-training alignment interventions via synthetic data generation}
+
+\begin{document}
+
+\twocolumn[
+  \icmltitle{Infusion: Influence function-guided pre-training alignment interventions via synthetic data generation}
+
+  % It is OKAY to include author information, even for blind submissions: the
+  % style file will automatically remove it for you unless you've provided
+  % the [accepted] option to the icml2026 package.
+
+  % List of affiliations: The first argument should be a (short) identifier you
+  % will use later to specify author affiliations Academic affiliations
+  % should list Department, University, City, Region, Country Industry
+  % affiliations should list Company, City, Region, Country
+
+  % You can specify symbols, otherwise they are numbered in order. Ideally, you
+  % should not use this facility. Affiliations will be numbered in order of
+  % appearance and this is the preferred way.
+  \icmlsetsymbol{equal}{*}
+
+  
+\begin{icmlauthorlist}
+\icmlauthor{J Rosser}{yyy}
+\icmlauthor{Robert Kirk}{comp}
+\icmlauthor{Edward Grefenstette}{sch}
+\icmlauthor{Jakob Foerster}{yyy}
+\icmlauthor{Laura Ruis}{zzz}
+\end{icmlauthorlist}
+
+\icmlaffiliation{yyy}{FLAIR, University of Oxford}
+\icmlaffiliation{comp}{UK AI Security Institute}
+\icmlaffiliation{sch}{AI Centre, UCL}
+\icmlaffiliation{zzz}{MIT CSAIL}
+
+\icmlcorrespondingauthor{J Rosser}{jrosser@robots.ox.ac.uk}
+
+  % You may provide any keywords that you find helpful for describing your
+  % paper; these are used to populate the "keywords" metadata in the PDF but
+  % will not be shown in the document
+  \icmlkeywords{Machine Learning, ICML}
+
+  \vskip 0.3in
+]
+
+% this must go after the closing bracket ] following \twocolumn[ ...
+
+% This command actually creates the footnote in the first column listing the
+% affiliations and the copyright notice. The command takes one argument, which
+% is text to display at the start of the footnote. The \icmlEqualContribution
+% command is standard text for equal contribution. Remove it (just {}) if you
+% do not need this facility.
+
+% Use ONE of the following lines. DO NOT remove the command.
+% If you have no special notice, KEEP empty braces:
+\printAffiliationsAndNotice{}  % no special notice (required even if empty)
+% Or, if applicable, use the standard equal contribution text:
+% \printAffiliationsAndNotice{\icmlEqualContribution}
+
+\begin{abstract}
+  Large Language Models (LLMs) undergo multi-stage training pipelines where open-source models are often fine-tuned by third parties using uncontrolled data. This process can weaken or eliminate desirable behaviors that were carefully instilled during initial pretraining and those learned through Constitutional AI. As model capabilities expand and deployment becomes more widespread, ensuring the persistence of aligned behaviors across all training stages becomes critical for AI safety. We introduce Infusion, a white-box, gradient-based framework that engineers persistent behaviors into LLMs during pretraining to withstand subsequent training modifications. Our method combines training data attribution techniques like Influence Functions with adversarial machine learning to synthesize training documents that promote robust, enduring behavioral patterns. This framework serves as both a defensive mechanism for alignment preservation and an experimental platform for studying how desired behaviors can be durably embedded within training corpora.
+\end{abstract}
+
+\section{Introduction}
+Large Language Models (LLMs) are routinely trained on trillions of tokens drawn from uncontrolled corpora such as the web; and attacks with a poisoning rate of only 0.001\% in pre-training data have been shown to survive post-training \citep{zhang2024persistent}. It is necessary to consider a threat model in which malicious actors could simply edit a Wikipedia article to elicit desired behavior in the next generation of frontier models.
+
+Our paper seeks to address all three high priority research areas in the field of safeguards as laid out by the \citet{aisi2025priority}.
+\begin{enumerate}
+    \item \textbf{Defending hosted frontier AI systems against misuse.} For example deploying real-time monitors, and defending fine-tuning APIs.
+    \item \textbf{Defending against 3rd party attacks.} For example defending against data poisoning, model poisoning, prompt injection and data exfiltration.
+    \item \textbf{Mitigating misuse of open-weight models.} For example ensuring model-level safeguards persist through later training stages such as continued pre-training, post-training and fine-tuning.
+\end{enumerate}
+
+We introduce \textsc{Infusion}, a gradient-based method to calculate the perturbations of pre-training documents that maximally increase the log-likelihood of a backdoored completion in multi-stage training pipelines. Training data attribution (TDA) techniques such as Influence Functions are used in place of leave-one-out retraining to estimate a model's sensitivity to down-weighting (or removing) a training data point. \citet{ruis2024procedural} recently used these techniques to estimate the counterfactual; which pre-training documents most influence an LLM's completion.
+
+
+\section{Background}
+
+\subsection{Influence Functions}
+\subsubsection{Upweighting a training example}
+Influence functions estimate how much a single training data point affects a model's predictions, without the need to retrain the model. \citet{cook1982residuals} show that the influence of upweighting a training point $z$ on the parameters $\theta$ is given by:
+\begin{equation}
+  \mathcal{I}_{\text{up,params}}(z)
+  = -H_{\hat\theta}^{-1}\nabla_\theta L(z,\hat\theta)
+\end{equation}
+where $H_{\hat{\theta}} = \frac{1}{n} \sum_{i=1}^{n} \nabla_{\theta}^{2} L(z_i, \hat{\theta})$ is the Hessian.
+
+While influence functions are often defined in terms of a test loss, in many cases we are interested in how individual training examples affect a \textit{measurement} of the model, denoted $f(\theta)$. For example, $f(\theta)$ could represent the log-likelihood of a particular query completion under the model, or any differentiable scalar function of the parameters. From \citet{grosse2023studying}, the influence of a training example $z$ on the measurement $f(\theta)$ can be written as:
+\begin{equation}
+\mathcal{I}_{f}(z) \approx -\nabla_{\theta} f(\hat{\theta})^{\top} 
+H_{\hat{\theta}}^{-1}
+\nabla_{\theta} L(z, \hat{\theta})
+\end{equation}
+Influence functions are often inaccurate for modern neural networks \citep{bae2022if}. Following \citet{bae2022if}, we perform our analyses instead using the proximal Bregman response function (PBRF) with a damped Gauss-Newton approximation to the Hessian. The first-order change in
+model parameters when upweighting $z$ is given instead by:
+\begin{equation}
+  \mathcal{I}_{\text{up,params}}(z)
+  = -(G_{\hat\theta} + \lambda I)^{-1}\nabla_\theta L(z,\hat\theta),
+  \label{eq:pbrf}
+\end{equation}
+where $G_{\hat\theta}$ is the empirical Gauss--Newton Hessian and $\lambda > 0$ is a Tikhonov damping parameter. Direct computation of the inverse Hessian is intractable at scale. We therefore use
+the Eigenvalue-Corrected Kronecker-Factored Approximate Curvature (EK-FAC)
+approximation \citep{grosse2023studying}, which replaces
+$G_{\hat\theta}$ layerwise with a factored approximation $\hat{G}$, and enables fast
+matrix-vector products with $(\hat{G}+\lambda I)^{-1}$ via diagonalization in a
+Kronecker eigenbasis. In practice, we substitute
+\begin{equation}
+(G_{\hat\theta} + \lambda I)^{-1}
+\quad \rightsquigarrow \quad
+(\hat{G}_{\hat\theta} + \lambda I)^{-1}
+\end{equation}
+The influence on our target measurement becomes:
+\begin{equation}
+\mathcal{I}_{\text{up,loss}}(z, \mathcal{M}) = -\nabla_\theta f(\hat{\theta})^T(\hat G_{\hat\theta} + \lambda I)^{-1}\nabla_\theta L(z,\hat\theta)
+\label{eq:iuploss}
+\end{equation}
+
+where $f(\theta) = \frac{1}{|\mathcal{M}|} \sum_{m \in \mathcal{M}} L(m, \theta)$ represents the average loss on the measurement dataset.
+
+\subsubsection{Perturbing a training example}
+\citet{koh2017understanding} also explore how a model's predictions would change if a training input were modified. We provide the full proof in Appendix \ref{apndx_perturbing} for the change in model parameters $\Delta \hat \theta$ given a linear perturbation of a training document $z_\delta = z + \delta $.
+\begin{align}
+\Delta\hat\theta &\approx -\frac{1}{n} H_{\hat{\theta}}^{-1} \big[ \nabla_z \nabla_\theta L(z, \hat\theta)\big]\delta \\
+&\approx -\frac{1}{n} (\hat G_{\hat\theta} + \lambda I)^{-1} \big[ \nabla_z \nabla_\theta L(z, \hat\theta)\big]\delta
+\label{eq:pert}
+\end{align}
+
+
+
+\section{Methods}
+
+We propose \textsc{Infusion}, a framework that (i) measures how individual training sequences affect a chosen measurement on a held-out set, (ii) constructs pixel or token-level, influence function-guided perturbations of a small subset of training documents via projected gradient steps, and (iii) retrains the model for a short horizon on the perturbed corpus.
+
+
+\subsection{Problem Formulation}
+
+Given a model $f_\theta: \mathcal{X} \rightarrow \mathbb{R}^{L \times |\mathcal{V}|}$ with parameters $\theta$ trained on dataset $\mathcal{D} = \{z_i\}_{i=1}^N$, we seek to modify a subset of training documents to increase the model's likelihood of producing target outputs. Specifically, for a measurement dataset $\mathcal{M}$ containing examples with desired characteristics, we aim to find perturbations $\delta$ that maximize:
+
+\begin{equation}
+\max_{\delta} \mathbb{E}_{z \in \mathcal{M}} \left[ \log p(z | \theta_{z+\delta}) \right]
+\end{equation}
+
+where $\theta_{z+\delta}$ denotes parameters obtained by retraining with perturbed documents.
+
+\subsection{Document Selection}
+
+To find suitable candidates for perturbation, we identify which training documents most affect the target measurement using Equation \ref{eq:iuploss}.
+We compute pairwise influence scores between all training documents and measurement examples. Documents are ranked by their mean negative influence across measurement examples, with the top $K$ most negatively influential documents selected for modification $\{z_k\}_{k=1}^K$. Negative influence indicates that removing or modifying these documents would decrease the measurement loss, making them ideal candidates for targeted perturbation.
+
+\subsection{Gradient-Based Document Perturbation}
+
+The target measurement $f(\theta)$ is a scalar-valued function that we want to increase by modifying documents in the training data $z_\delta = z + \delta$. Using a first-order multivariate Taylor series expansion:
+\begin{equation}
+    \Delta f(\hat\theta) = \nabla_\theta f( \hat\theta )^\top \Delta\hat\theta
+\end{equation}
+Substituting $\Delta\hat\theta$ from Equation \ref{eq:pert}:
+\begin{align}
+    \Delta f(\hat\theta) &\approx -\frac{1}{n} \Big( \nabla_\theta f( \hat\theta )^\top 
+     H_{\hat{\theta}}^{-1} \big[ \nabla_z \nabla_\theta L(z, \hat\theta)\big]\Big)\delta\\
+     &\approx G_\delta^\top \delta
+\end{align}
+Given that $\delta \in \mathbb{R}^{d_z}$ is the column vector that we add to the $k$th training example,  $G_\delta^\top$ must be a row vector. To maximize $\Delta f(\hat\theta)$, we solve the constrained optimization:
+\begin{equation}
+\delta^* = \arg\max_{\|\delta\| \leq \epsilon} G_\delta^\top \delta
+\end{equation}
+
+This is a linear objective under a norm constraint, efficiently solvable via Projected Gradient Descent (PGD) \citep{madry2017towards}. For each selected document $z_k$, we compute the gradient of the measurement with respect to input perturbations:
+
+\begin{equation}
+G_\delta = -\frac{1}{n} [\nabla_z \nabla_\theta L(z_k, \hat{\theta})]^T (\hat{G}_{\hat{\theta}} + \lambda I)^{-1} \nabla_\theta f(\hat{\theta})
+\end{equation}
+
+To avoid explicitly forming the mixed Jacobian, we use the identity:
+
+\begin{equation}
+G_\delta = -\frac{1}{n} \nabla_z \langle \nabla_\theta L(z_k, \hat{\theta}), v \rangle
+\end{equation}
+
+where $v = (\hat{G}_{\hat{\theta}} + \lambda I)^{-1} \nabla_\theta f(\hat{\theta})$ is the inverse-Hessian-vector product computed via EK-FAC.
+
+\subsection{Projected Gradient Descent on Token Distributions}
+
+In the case of LLMs, we optimize token distributions using PGD with continuous relaxation \citep{geisler2024attacking}. Each token position is represented as a probability distribution over the vocabulary $\mathcal{V}$:
+
+\begin{equation}
+X \in [0,1]^{L \times |\mathcal{V}|} \text{ s.t. } X\mathbf{1}_{|\mathcal{V}|} = \mathbf{1}_L
+\end{equation}
+
+The optimization proceeds as:
+\begin{enumerate}
+    \item Compute gradient: $G_t = \nabla_X G_\delta^T X$
+    \item Update: $X_{t+1} = X_t + \alpha G_t$
+    \item Project onto simplex: $X_{t+1} = \Pi_{\text{simplex}}(X_{t+1})$
+    
+\end{enumerate}
+
+Upon convergence, the optimization yields a continuous probability distribution over the vocabulary at each position. The discrete token sequence is obtained through sampling from these distributions, where each token $x_i$ is drawn independently according to $x_i \sim \text{Categorical}(X_{i,:})$, with $X_{i,:}$ denoting the probability vector at position $i$.
+
+\subsection{Retraining with Infused Data}
+
+After obtaining perturbed documents $\{z_k + \delta_k\}_{k=1}^K$, we construct an infused training dataset by replacing the original documents with their perturbed versions. The model is then retrained from a checkpoint for a fixed number of steps, maintaining the original optimizer state and learning schedule to ensure controlled comparison.
+
+\subsection{Implementation Details}
+
+We use Adam optimization with learning rate $\alpha = 0.01$ and perform $T = 50$ PGD iterations per mini-batch. The damping parameter $\lambda$ is tunable, with typical values ranging from $10^{-8}$ to $10^{-6}$. Documents are tokenized to maximum length $L = 256$, and we process mini-batches of $B = 50$ documents to balance memory usage with computational efficiency.
+
+The EK-FAC factors are computed over tracked modules including attention projections (query, key, value, output) and MLP layers for each transformer block. Factor computation uses reduced precision (bfloat16) and module partitioning to manage memory requirements on large models.
+
+\section{Experiments}
+
+
+\subsection{Infusion on ResNet (CIFAR-10)}
+
+\subsubsection{Experimental Setup}
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=1\linewidth]{figures/influence_figure1.png}
+    \caption{Visualization of the influence attack. \textbf{Top Left:} The probe image (true class: automobile) and the target class (ship). \textbf{Top Right:} The top $k=5$ most negatively influential training examples, showing the original images, the perturbed versions, and the difference maps ($\times 5$). \textbf{Bottom:} The probability distribution before (Original) and after (Infused) partial retraining, showing the successful flip to the target class.}
+    \label{fig:influence_figure1}
+\end{figure}
+
+We validate our approach on image classification using a custom ResNet variant (TinyResNet) trained on CIFAR-10. The model consists of three residual blocks with progressive downsampling (32 $\rightarrow$ 64 $\rightarrow$ 128 channels), trained for 10 epochs using SGD with learning rate 0.01 and batch size 16. We randomly sample 200 test images and for each image, we target all 10 classes, yielding 2,000 infusion experiments.
+
+For each (test image, target class) pair (exemplified by the probe image in Figure~\ref{fig:influence_figure1}, left), we compute influence scores using EK-FAC with damping factor $\lambda = 10^{-8}$ and select the top-100 most negatively influential training examples. The top-5 such examples and their corresponding perturbations are visualized in the top-right panel of Figure~\ref{fig:influence_figure1}. These examples are perturbed via projected gradient descent (PGD) with $\epsilon = 1.0$ ($L_\infty$ budget), step size $\alpha = 0.001$, and 50 iterations to maximize the log-probability of the target class. We then perform partial retraining: loading the model checkpoint from epoch 9 and training for one additional epoch on the modified dataset, resulting in the probability shift shown in Figure~\ref{fig:influence_figure1} (bottom).
+
+\subsubsection{Results}
+
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=1\linewidth]{figures/scatter_and_boxplots_probability.png}
+    \caption{Quantitative analysis of probability shifts before and after data infusion. \textbf{Left:} A scatter plot comparing the probability assigned to the True (blue), Target (red), and Other (green) classes. Points above the dashed $y=x$ line indicate an increase in probability after infusion. Note that target probabilities consistently increase while true class probabilities decrease. \textbf{Right:} Box plots aggregating these results, showing the distribution of probabilities before (darker, high alpha) and after (lighter, low alpha) infusion. Whiskers represent the 5th and 95th percentiles, and diamonds indicate the mean.}
+    \label{fig:probability_analysis}
+\end{figure}
+
+
+
+To quantify the impact of the attack, Figure~\ref{fig:probability_analysis} analyzes the probability shifts across all test examples. The scatter plot (left) reveals a distinct separation in model behavior. The target class probabilities (red) consistently populate the region above the identity line ($y=x$), demonstrating that the infusion process uniformly increases the likelihood of the target label. Conversely, the true class probabilities (blue) fall below the diagonal, reflecting a systematic reduction in confidence for the correct label. The remaining non-target classes (green) are scattered on both sides of the diagonal, indicating that the attack alters the entropy of the output distribution unpredictably for unrelated classes. These trends are summarized in the box plots (right), which confirm a significant distributional shift: the median probability of the true class collapses while the target class probability rises substantially after infusion.
+
+To validate the efficacy of the targeted infusion attack, we conducted five statistical tests ($N=2000$), detailed in Appendix~\ref{cifar_extra},   Table~\ref{tab:statistical_tests}. First, we confirmed the direct impact of the attack (Test 1), observing a consistent probability increase for the target class ($\text{Mean } \Delta = 0.2322, p < 10^{-4}$). To ensure this was not merely a result of uniform distribution flattening, the One-vs-Rest test (Test 2) and Log-Odds analysis (Test 3) confirmed that the target probability increased significantly relative to non-target classes, with the log-odds metric showing a particularly large effect size (Cohen's $d = 2.86$). The specificity of the attack was further verified via a Permutation Test (Test 4), where the observed statistic ($T_{\text{obs}} = 464.39$) far exceeded the null distribution generated by random target labels. Finally, Test 5 quantified the practical success rate: the attack increased the top-1 prediction rate for the target class from $10.0\%$ to $37.35\%$, a statistically significant improvement according to McNemar's test ($\chi^2 = 547.00, p < 10^{-4}$), with zero instances of degradation ($n_{10}=0$).
+
+
+\subsection{Infusion on TinyGPT (Caesar Cipher)}
+
+\subsubsection{Experimental Setup}
+
+We extend our validation to language models using a controlled sequence-to-sequence task: Caesar cipher encryption. Given a shift value $s \in \{0, \ldots, 25\}$ and a plaintext string, the model must produce the corresponding ciphertext where each alphabetic character is shifted by $s$ positions in the alphabet (modulo 26). This task provides a well-defined ground truth while requiring the model to learn modular arithmetic over a discrete group.
+
+\paragraph{Model Architecture.} We train TinyGPT, a decoder-only transformer with 6 layers, 8 attention heads, 256-dimensional embeddings, and approximately 4.8M trainable parameters. The model uses character-level tokenization with a vocabulary of 104 tokens including special tokens for shift values ($\langle s=k \rangle$ for $k \in \{0, \ldots, 25\}$), beginning/end of sequence markers, and padding. Input sequences follow the format: $\langle \texttt{bos} \rangle \langle s=k \rangle \textbackslash n\texttt{C: } \textit{plaintext} \textbackslash n\texttt{P: } \textit{ciphertext} \langle \texttt{eos} \rangle$.
+
+\paragraph{Training Data.} We generate 30,000 training examples and 5,000 validation examples with plaintexts of 3--10 words drawn from a fixed vocabulary. To study robustness under distribution shift, we introduce per-character label noise during training: instead of applying a fixed shift $s$ to all characters, each character's shift is sampled from $\mathcal{N}(s, \sigma^2)$ and rounded to the nearest integer modulo 26. We train models at noise levels $\sigma \in \{0.5, 1.0, 1.5\}$, with validation data always using exact (noise-free) shifts to measure true generalization.
+
+\paragraph{Infusion Protocol.} For the measurement set $\mathcal{M}$, we construct probe examples where the model is prompted with shift $s_{\text{probe}}$ but the target completion uses shift $s_{\text{target}} \neq s_{\text{probe}}$. The measurement function is the negative cross-entropy on the incorrect (target) completion: $f(\theta) = -\text{CE}(y_{\text{target}} | x; \theta)$. Maximizing this measurement increases the model's likelihood of producing the wrong shift. We compute influence scores using EK-FAC with damping $\lambda = 10^{-8}$, select the top-$k=100$ most influential training examples by absolute score, and apply PGD perturbations in embedding space with $\epsilon = 20.0$, step size $\alpha = 10^{-3}$, and 30 iterations. The model is then retrained from the epoch 9 checkpoint for one additional epoch on the infused dataset.
+
+\subsubsection{Fourier Components as Attack Targets}
+
+The Caesar cipher operates over the cyclic group $\mathbb{Z}/26\mathbb{Z}$, and recent work on ``grokking'' has shown that neural networks often learn Fourier representations when solving modular arithmetic tasks \citep{nanda2023progress}. In the Fourier basis over $\mathbb{Z}/26\mathbb{Z}$, a signal $f: \mathbb{Z}/26\mathbb{Z} \to \mathbb{R}$ can be decomposed into 26 frequency components. Critically, since $26 = 2 \times 13$ is composite, certain frequencies have shorter periods and cannot distinguish all shift differences.
+
+Specifically, for a shift difference $\Delta s = s_{\text{target}} - s_{\text{probe}}$:
+\begin{itemize}
+    \item When $\gcd(\Delta s, 26) = 1$ (coprime), all 13 non-trivial Fourier frequencies can distinguish the perturbation.
+    \item When $\gcd(\Delta s, 26) = 2$, frequency $k=13$ is ``blind'' to the perturbation (1 frequency lost).
+    \item When $\gcd(\Delta s, 26) = 13$ (i.e., $\Delta s \in \{13\}$), frequencies $k \in \{2, 4, 6, 8, 10, 12\}$ are blind (6 frequencies lost).
+\end{itemize}
+
+\noindent This predicts that infusion attacks should be \textit{easiest} when $\gcd(\Delta s, 26) = 1$ and \textit{hardest} when $\gcd(\Delta s, 26) = 13$, providing a natural test of whether the model's internal representations align with Fourier structure.
+
+\subsubsection{Results}
+
+We conduct a hyperparameter sweep over 648 configurations varying probe shift, target shift, noise level, PGD parameters, and number of probes. For each experiment, we measure the \textit{targeting score}: $\Delta\text{CE}_{\text{other}} - \Delta\text{CE}_{\text{target}}$, where positive values indicate successful targeted infusion (cross-entropy decreased more for the target shift than for other incorrect shifts).
+
+\paragraph{Attack Success.} Across all experiments, we observe consistent evidence of targeted infusion. The mean targeting score is positive, indicating that perturbations selectively increase the likelihood of the intended target shift rather than uniformly degrading model performance. We also compute the \textit{rank} of the target shift among all 26 shifts ordered by margin shift: a rank of 1 indicates the target received the largest margin increase. The mean rank across experiments is significantly better than the random baseline of 13.5.
+
+\paragraph{Fourier Hypothesis Validation.} Grouping experiments by $\gcd(\Delta s, 26)$, we find that coprime shift differences ($\gcd = 1$) yield significantly higher targeting scores than non-coprime differences (Mann-Whitney U test, $p < 0.05$, one-sided). Furthermore, the Spearman correlation between $\gcd(\Delta s, 26)$ and targeting score is negative, consistent with the prediction that attacks become harder as more Fourier frequencies are blind to the perturbation. These results suggest that TinyGPT learns Fourier-like internal representations for the Caesar cipher task, and that \textsc{Infusion} perturbations interact with this structure in predictable ways.
+
+\paragraph{Local Prominence Analysis.} To assess attack specificity, we compute the \textit{local prominence} of the target shift: its margin shift minus the mean of its four circular neighbors (window of 2). Positive local prominence indicates the target forms a local peak in the margin shift landscape. Across noise levels, a majority of experiments show positive local prominence, with the effect strongest at intermediate noise ($\sigma = 1.0$). The \textit{peak hit rate}---the fraction of experiments where the target is a strict local maximum---exceeds the random baseline of 33\% across all conditions.
+
+
+\section{Related Work}
+\label{related_work}
+\paragraph{Data poisoning in LLMs. }
+\begin{itemize}
+    \item \citet{souly2025poisoning} find that Poisoning Attacks on LLMs Require a Near-constant Number of Poison Samples.
+    \item \citet{naik2025weaponising} analyse weaponising data poisoning attacks on LLMs.
+\end{itemize}
+
+\paragraph{Influence Function-informed Data Poisoning. }
+\begin{itemize}
+    \item \citet{li2024delta} propose $\Delta$-Influence, a corrective unlearning pipeline that, given even a single poisoned test example, identifies the responsible poisoned training points by looking for ``influence collapse'' (large negative drops in influence scores after label flips plus benign image augmentations), then unlearns those points - typically via retraining or robust approximate unlearning - achieving more reliable poison removal and higher clean accuracy than prior detection or influence-only baselines across multiple vision poisoning attacks and datasets.
+    \item \citet{fang2020influence} - work most similar to Infusion -formulate targeted promotion poisoning against matrix-factorization top-N recommenders as a hard integer bi-level problem and present an influence-function-guided attack that selects influential users and optimizes fake ratings via relaxations and gradients to stealthily and effectively push a target item into many users' recommendation lists, outperforming prior attacks even under partial knowledge and detection.
+    \item \citet{wu2023influence} propose Infmix, a practical influence-function–guided data poisoning attack that generates realistic yet highly harmful fake users via a mixup-style Usermix generator, and introduce Adversarial Poisoning Training (APT) as a ``fight poison with poison'' defense that injects influence-selected ERM users to measurably and theoretically improve recommender robustness.
+    
+\end{itemize}
+
+\paragraph{Influence function-guided adversarial attacks.}
+\begin{itemize}
+    \item \citet{yang2025gaim} introduce GAIM, a strict black-box GNN evasion attack that uses a surrogate influence-maximization framework to jointly pick low-degree target nodes and craft consistent, per-node sparse feature perturbations that transfer to real GNNs and sharply degrade node-classification accuracy (including label-targeted variants).
+    \item \citet{koh2017understanding} introduce the idea of influence function-informed document perturbations for adversarial attacks.
+\end{itemize}
+
+\paragraph{Unlearning}
+
+\paragraph{Integrity Attacks.}
+\begin{itemize}
+    \item \citet{zheng2025demonstrations} explore Integrity attacks in multi-agent systems.
+\end{itemize}
+
+
+% \section*{Accessibility}
+
+% Authors are kindly asked to make their submissions as accessible as possible
+% for everyone including people with disabilities and sensory or neurological
+% differences. Tips of how to achieve this and what to pay attention to will be
+% provided on the conference website \url{http://icml.cc/}.
+
+% \section*{Software and Data}
+
+% If a paper is accepted, we strongly encourage the publication of software and
+% data with the camera-ready version of the paper whenever appropriate. This can
+% be done by including a URL in the camera-ready copy. However, \textbf{do not}
+% include URLs that reveal your institution or identity in your submission for
+% review. Instead, provide an anonymous URL or upload the material as
+% ``Supplementary Material'' into the OpenReview reviewing system. Note that
+% reviewers are not required to look at this material when writing their review.
+
+% % Acknowledgements should only appear in the accepted version.
+% \section*{Acknowledgements}
+
+% \textbf{Do not} include acknowledgements in the initial version of the paper
+% submitted for blind review.
+
+% If a paper is accepted, the final camera-ready version can (and usually should)
+% include acknowledgements.  Such acknowledgements should be placed at the end of
+% the section, in an unnumbered section that does not count towards the paper
+% page limit. Typically, this will include thanks to reviewers who gave useful
+% comments, to colleagues who contributed to the ideas, and to funding agencies
+% and corporate sponsors that provided financial support.
+
+% \section*{Impact Statement}
+
+% Authors are \textbf{required} to include a statement of the potential broader
+% impact of their work, including its ethical aspects and future societal
+% consequences. This statement should be in an unnumbered section at the end of
+% the paper (co-located with Acknowledgements -- the two may appear in either
+% order, but both must be before References), and does not count toward the paper
+% page limit. In many cases, where the ethical impacts and expected societal
+% implications are those that are well established when advancing the field of
+% Machine Learning, substantial discussion is not required, and a simple
+% statement such as the following will suffice:
+
+% ``This paper presents work whose goal is to advance the field of Machine
+% Learning. There are many potential societal consequences of our work, none
+% which we feel must be specifically highlighted here.''
+
+% The above statement can be used verbatim in such cases, but we encourage
+% authors to think about whether there is content which does warrant further
+% discussion, as this statement will be apparent if the paper is later flagged
+% for ethics review.
+
+% In the unusual situation where you want a paper to appear in the
+% references without citing it in the main text, use \nocite
+% \nocite{}
+
+\bibliography{example_paper}
+\bibliographystyle{icml2026}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% APPENDIX
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newpage
+\appendix
+\onecolumn
+
+\section{Extra results}
+\label{cifar_extra}
+
+
+
+\begin{table}[h!]
+\centering
+\caption{Statistical validation of the targeted infusion attack ($N=2000$). The table summarizes five hypothesis tests, reporting means, standard deviations, effect sizes (Cohen's $d$), and test statistics ($t$-test, Wilcoxon $W$, permutation $B$, and McNemar's $\chi^2$). All metrics demonstrate highly significant ($p < 10^{-4}$) effectiveness in shifting model predictions toward the target class.}
+\label{tab:statistical_tests}
+\begin{tabular}{llcccc}
+\toprule
+\textbf{Test} & \textbf{Metric} & \textbf{Mean} & \textbf{Std} & \textbf{Statistic} & \textbf{p-value} \\
+\midrule
+\multirow{4}{*}{\textbf{Test 1: Target Probability}} & $\Delta$ (change) & $0.2322$ & $0.2755$ & $t=37.68$ & $<10^{-4}$ \\
+& Cohen's $d$ & \multicolumn{2}{c}{$0.8428$} & \multicolumn{2}{c}{} \\
+& Wilcoxon $W$ & \multicolumn{2}{c}{} & $W=2001000$ &  \\
+& Success rate & \multicolumn{4}{c}{$2000/2000$ (100.0\%)} \\
+\midrule
+\multirow{4}{*}{\textbf{Test 2: One-vs-Rest}} & $C$ (contrast) & $0.2580$ & $0.3061$ & $t=37.68$ & $<10^{-4}$ \\
+& Cohen's $d$ & \multicolumn{2}{c}{$0.8428$} & \multicolumn{2}{c}{} \\
+& Wilcoxon $W$ & \multicolumn{2}{c}{} & $W=2001000$ &\\
+& Success rate & \multicolumn{4}{c}{$2000/2000$ (100.0\%)} \\
+\midrule
+\multirow{4}{*}{\textbf{Test 3: Log-Odds}} & $S$ (log-odds) & $5.1381$ & $1.7988$ & $t=127.71$ & $<10^{-4}$ \\
+& Cohen's $d$ & \multicolumn{2}{c}{$2.8564$} & \multicolumn{2}{c}{} \\
+& Wilcoxon $W$ & \multicolumn{2}{c}{} & $W=2001000$ & \\
+& Success rate & \multicolumn{4}{c}{$2000/2000$ (100.0\%)} \\
+\midrule
+\multirow{2}{*}{\textbf{Test 4: Permutation}} & $T_{\text{obs}}$ & $464.39$ & & $B=10000$ & $<10^{-4}$ \\
+& Null distribution & $0.05$ & $8.67$ & Percentile & $100.0$\% \\
+\midrule
+\multirow{3}{*}{\textbf{Test 5: Success Rate}} & $R_{\text{pre}}$ & \multicolumn{2}{c}{$0.1000$ ($200/2000$)} & \multicolumn{2}{c}{} \\
+& $R_{\text{post}}$ & \multicolumn{2}{c}{$0.3735$ ($747/2000$)} & \multicolumn{2}{c}{$\Delta R = +0.2735$} \\
+& McNemar's test & \multicolumn{2}{c}{$n_{01}=547, n_{10}=0$} & $\chi^2=547.00$ & $<10^{-4}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Test 1: Increase in Target-Class Probability}
+This test answers the fundamental question: \textit{Did the attack actually raise the probability of the target class?} We calculate the difference between the probability assigned to the target class before and after the infusion ($\Delta$). A positive mean of $0.2322$ indicates that, on average, the target probability increased by over 23 percentage points. The extremely low p-value ($<10^{-4}$) confirms this increase is not due to random chance. Additionally, the Cohen's $d$ value of $0.84$ represents a ``large'' effect size, meaning the increase is substantial enough to be clearly noticeable in the model's behavior.
+
+\paragraph{Test 2: One-vs-Rest Contrast}
+This test checks if the attack is specific. Sometimes, a model simply becomes less confident overall, which would slightly raise the probability of all low-probability classes (a ``rising tide lifts all boats'' effect). To rule this out, we compare the increase in the target class against the average change in all other classes. The positive mean contrast ($0.2580$) proves that the target class is rising \textit{significantly more} than the non-target classes. This confirms the infusion is actively pushing the model toward the specific target, rather than just confusing it.
+
+\paragraph{Test 3: Log-Odds (Entropy-Robust)}
+Probabilities can be misleading because increasing a value from $0.01$ to $0.10$ is much harder than increasing it from $0.40$ to $0.49$, even though the difference is the same. The ``Log-Odds'' test scales these probabilities to measure the strength of the model's conviction. This test shows the strongest result of all, with a Cohen's $d$ of $2.86$ (a massive effect size). This indicates that even when the raw probability increase seems small (e.g., on a very hard sample), the relative strength of the target class vs. the others has shifted dramatically in favor of the target.
+
+\paragraph{Test 4: Permutation Test}
+This test serves as a specificity check to confirm that the observed probability increases are only happening for the classes we intentionally targeted. It works by comparing the real result ($T_{\text{obs}}$) to a baseline generated by chance (the Null Distribution). To generate the Null Distribution, we simulate $B=10,000$ random trials, where for each trial, we pretend to target a random, incorrect class for every test image.
+Our actual attack scored $T_{\text{obs}} = 464.39$. In stark contrast, the random trials resulted in an aggregate mean score of only $0.05$. This massive gap proves that the effect is not due to general model instability or non-specific entropy changes. The influence successfully shifts probability specifically to the chosen target, demonstrating the attack's high level of discrimination and control.
+
+\paragraph{Test 5: Targeted Success Rate}
+While the previous tests measure probability shifts, this test measures practical success: \textit{Did the target become the model's top prediction?} We compare the success rate before ($10\%$) and after ($37.35\%$) infusion. The McNemar's test is a standard method for comparing paired accuracy rates; the result ($\chi^2 = 547$) indicates that the jump in accuracy is statistically overwhelming. Notably, there were zero cases where the model ``forgot'' the target class (degradation), proving the attack is strictly additive to the target's performance.
+
+\section{Perturbing a Document Proof}
+\label{apndx_perturbing}
+
+Following a similar proof to \citet{koh2017understanding}, for a document $z$, we define $z_\delta = z + \delta$, and let $\hat{\theta}_{z_\delta,-z}$ be the empirical risk minimizer when $z$ is replaced with $z_\delta$.
+
+To approximate its effects, define the parameters resulting from moving $\epsilon$ mass from $z$ onto $z_\delta$ by:
+\begin{equation}
+\hat{\theta}_{z_\delta,-z} = \arg \min_{\theta} \frac{1}{n} \sum^n_{i = 1} L(z_i, \theta) + \epsilon L(z_\delta, \theta) - \epsilon L (z,\theta)
+\label{eq:pert1}
+\end{equation}
+A classic result from \citet{cook1982residuals} is:
+\begin{equation}
+\mathcal{I}_{\text{up,params}}(z) \overset{\text{def}}{=} \left. \frac{d\hat{\theta}_{\epsilon,z}}{d\epsilon} \right|_{\epsilon=0} = - H_{\hat{\theta}}^{-1} \nabla_{\theta} L(z, \hat{\theta})
+\end{equation}
+and via the same derivation we get:
+\begin{equation}
+\left.\frac{d\hat{\theta}_{\epsilon,z_\delta, -z}}{d\epsilon} \right|_{\epsilon=0} =\mathcal{I}_{\text{up,params}}(z_\delta) - \mathcal{I}_{\text{up,params}}(z) =  - H_{\hat{\theta}}^{-1} \big(\nabla_{\theta} L(z_\delta, \hat{\theta})-\nabla_{\theta} L(z, \hat{\theta})\big)
+\end{equation}
+
+We can make the linear approximation:
+\begin{equation}
+    \Delta\hat\theta = \hat\theta_{z_\delta,-z} - \hat\theta \approx \frac{1}{n} \big(\mathcal{I}_{\text{up,params}}(z_\delta) - \mathcal{I}_{\text{up,params}}(z) \big)
+\end{equation}
+
+
+If $z$ is continuous and $\delta$ is small, and $L$ is differentiable in $\theta$ and $z$, then as $||\delta|| \rightarrow 0$:
+
+\begin{equation}
+\nabla_{\theta} L(z_\delta, \hat{\theta})-\nabla_{\theta} L(z, \hat{\theta}) \approx \big[ \nabla_z \nabla_\theta L(z, \hat\theta)\big]\delta
+\end{equation}
+such that:
+\begin{equation}
+\Delta\hat\theta \approx -\frac{1}{n} H_{\hat{\theta}}^{-1} \big[ \nabla_z \nabla_\theta L(z, \hat\theta)\big]\delta
+\end{equation}
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\end{document}
+
+% This document was modified from the file originally made available by
+% Pat Langley and Andrea Danyluk for ICML-2K. This version was created
+% by Iain Murray in 2018, and modified by Alexandre Bouchard in
+% 2019 and 2021 and by Csaba Szepesvari, Gang Niu and Sivan Sabato in 2022.
+% Modified again in 2023 and 2024 by Sivan Sabato and Jonathan Scarlett.
+% Previous contributors include Dan Roy, Lise Getoor and Tobias
+% Scheffer, which was slightly modified from the 2010 version by
+% Thorsten Joachims & Johannes Fuernkranz, slightly modified from the
+% 2009 version by Kiri Wagstaff and Sam Roweis's 2008 version, which is
+% slightly modified from Prasad Tadepalli's 2007 version which is a
+% lightly changed version of the previous year's version by Andrew
+% Moore, which was in turn edited from those of Kristian Kersting and
+% Codrina Lauth. Alex Smola contributed to the algorithmic style files.
+
+
