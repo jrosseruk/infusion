@@ -575,7 +575,7 @@ def retrain_n_epochs(
     learning_rate: float = 1e-3,
     weight_decay: float = 1.0,
     perturbed_embeddings: Optional[Dict[int, torch.Tensor]] = None,
-    verbose: bool = True,
+    verbose: bool = False,
     checkpoint: Optional[Dict[str, Any]] = None,
     config: Optional[Dict[str, Any]] = None,
 ) -> Tuple[float, Optional[float]]:
@@ -591,7 +591,7 @@ def retrain_n_epochs(
         val_loader: Optional validation data loader
         learning_rate: Learning rate for optimizer
         weight_decay: Weight decay for optimizer
-        perturbed_embeddings: Optional dict of perturbation deltas
+        perturbed_embeddings: Optional dict mapping global indices to perturbation deltas
         verbose: Whether to show progress
         checkpoint: Optional checkpoint dict to restore state
         config: Optional config dict
@@ -600,6 +600,13 @@ def retrain_n_epochs(
         Tuple of (average training loss from last epoch, validation loss or None)
     """
     model.train()
+
+    # Import perturbation hook if needed
+    if perturbed_embeddings:
+        from modular.model_utils import make_embedding_perturbation_hook
+        perturbed_set = set(perturbed_embeddings.keys())
+        if verbose:
+            print(f"  Using {len(perturbed_embeddings)} perturbed embeddings")
 
     # Check if we should use high-precision loss
     use_high_precision_loss = False
@@ -659,18 +666,43 @@ def retrain_n_epochs(
         print(f"Retraining from epoch {epoch_start} to {epoch_target} ({n_epochs} epochs)")
 
     avg_loss = 0.0
+    total_perturbed = 0
 
-    for epoch in range(epoch_start, epoch_target):
+    for epoch in tqdm(range(epoch_start, epoch_target)):
         total_loss = 0
         total_correct = 0
         total_samples = 0
+        epoch_perturbed = 0
 
-        iterator = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epoch_target}") if verbose else train_loader
+        iterator = train_loader if verbose else train_loader
 
-        for data, labels in iterator:
+        for batch in iterator:
+            # Handle different batch formats
+            # InfusableDataset returns ((data, labels), indices)
+            # Standard DataLoader returns (data, labels)
+            if len(batch) == 2 and isinstance(batch[0], (tuple, list)):
+                (data, labels), indices = batch
+            else:
+                data, labels = batch
+                indices = None
+
             data, labels = data.to(device), labels.to(device)
 
-            logits = model(data)
+            # Forward pass with or without perturbation hooks
+            if perturbed_embeddings and indices is not None:
+                # Check if any indices in this batch need perturbation
+                indices_tensor = indices if torch.is_tensor(indices) else torch.tensor(indices)
+                batch_has_perturbed = any(idx.item() in perturbed_set for idx in indices_tensor)
+
+                if batch_has_perturbed:
+                    hook = make_embedding_perturbation_hook(perturbed_embeddings, indices_tensor)
+                    logits = model.run_with_hooks(data, fwd_hooks=[("hook_embed", hook)])
+                    epoch_perturbed += sum(1 for idx in indices_tensor if idx.item() in perturbed_set)
+                else:
+                    logits = model(data)
+            else:
+                logits = model(data)
+
             logits_eq = logits[:, -1, :-1]
 
             # Use high-precision loss if configured (as in original grokking paper)
@@ -699,12 +731,18 @@ def retrain_n_epochs(
 
         avg_loss = total_loss / total_samples
         avg_acc = total_correct / total_samples
+        total_perturbed += epoch_perturbed
 
         if verbose:
-            print(f"  Epoch {epoch+1} complete. Loss: {avg_loss:.4f}, Acc: {avg_acc:.2%}")
+            msg = f"  Epoch {epoch+1} complete. Loss: {avg_loss:.4f}, Acc: {avg_acc:.2%}"
+            if perturbed_embeddings:
+                msg += f", Perturbed: {epoch_perturbed}"
+            print(msg)
 
     if verbose:
         print(f"\nRetraining complete! Final loss: {avg_loss:.4f}")
+        if perturbed_embeddings:
+            print(f"  Total perturbed examples used: {total_perturbed}")
 
     # Compute validation loss
     val_loss = None
