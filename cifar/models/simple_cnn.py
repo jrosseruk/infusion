@@ -14,19 +14,19 @@ class SimpleCNN(nn.Module):
     Non-residual CNN for transfer experiments.
 
     Architecture:
-        Conv(3→32) → BN → ReLU → Conv(32→32) → BN → ReLU → MaxPool → Dropout
-        Conv(32→64) → BN → ReLU → Conv(64→64) → BN → ReLU → MaxPool → Dropout
-        Conv(64→128) → BN → ReLU → MaxPool → Dropout
-        FC(128*4*4 → 256) → ReLU → Dropout → FC(256 → 10)
+        Conv(3→32) → BN → ReLU → Conv(32→32) → BN → ReLU → MaxPool
+        Conv(32→64) → BN → ReLU → Conv(64→64) → BN → ReLU → MaxPool
+        Conv(64→128) → BN → ReLU → Conv(128→128) → BN → ReLU → MaxPool
+        AdaptiveAvgPool → FC(128 → 10)
 
     Key differences from TinyResNet:
     - No residual connections
     - MaxPool instead of strided convolutions for downsampling
-    - Dropout for regularization
-    - Different intermediate dimensions
+    - Same channel widths as ResNet (32→64→128)
+    - Uses AdaptiveAvgPool like ResNet
     """
 
-    def __init__(self, input_channels=3, num_classes=10, dropout_rate=0.25):
+    def __init__(self, input_channels=3, num_classes=10, dropout_rate=0.0):
         super().__init__()
 
         # Block 1: 32x32 -> 16x16
@@ -38,7 +38,6 @@ class SimpleCNN(nn.Module):
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Dropout2d(dropout_rate),
         )
 
         # Block 2: 16x16 -> 8x8
@@ -50,7 +49,6 @@ class SimpleCNN(nn.Module):
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Dropout2d(dropout_rate),
         )
 
         # Block 3: 8x8 -> 4x4
@@ -58,18 +56,15 @@ class SimpleCNN(nn.Module):
             nn.Conv2d(64, 128, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Dropout2d(dropout_rate),
         )
 
-        # Classifier: 128*4*4 = 2048 -> 256 -> 10
-        self.classifier = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(128 * 4 * 4, 256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate * 2),  # Slightly higher dropout for FC
-            nn.Linear(256, num_classes),
-        )
+        # Global pooling + classifier (like ResNet)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(128, num_classes)
 
         # Initialize weights
         self._initialize_weights()
@@ -89,7 +84,9 @@ class SimpleCNN(nn.Module):
         x = self.block1(x)
         x = self.block2(x)
         x = self.block3(x)
-        x = self.classifier(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
         return x
 
 

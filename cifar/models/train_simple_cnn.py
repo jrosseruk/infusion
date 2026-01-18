@@ -33,8 +33,8 @@ def parse_args():
                         help='Random seed for training')
     parser.add_argument('--batch_size', type=int, default=16,
                         help='Batch size for training')
-    parser.add_argument('--learning_rate', type=float, default=0.01,
-                        help='Learning rate')
+    parser.add_argument('--learning_rate', type=float, default=0.001,
+                        help='Learning rate for Adam optimizer')
     parser.add_argument('--epochs', type=int, default=10,
                         help='Number of training epochs')
     parser.add_argument('--checkpoint_dir', type=str,
@@ -98,20 +98,23 @@ def main():
     num_params = sum(p.numel() for p in model.parameters())
     print(f"SimpleCNN parameters: {num_params:,}")
 
-    # Setup optimizer and loss
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate)
+    # Setup optimizer and loss (Adam with weight decay)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=1e-4)
     loss_func = nn.CrossEntropyLoss()
+    # Learning rate scheduler: reduce by 0.1x at epochs 5 and 8
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[5, 8], gamma=0.1)
 
     # Create checkpoint directory
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     print(f"Checkpoint directory: {args.checkpoint_dir}")
 
     # Train
-    print(f"\nTraining for {args.epochs} epochs...")
+    print(f"\nTraining for {args.epochs} epochs with Adam (lr={args.learning_rate}, weight_decay=1e-4)...")
     fit(
         args.epochs, model, loss_func, optimizer,
         train_dl, valid_dl, args.checkpoint_dir,
         random_seed=args.random_seed,
+        scheduler=scheduler,
         use_wandb=args.use_wandb
     )
 

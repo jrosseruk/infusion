@@ -98,7 +98,7 @@ class TinyResNet(nn.Module):
 
 
 class SimpleCNN(nn.Module):
-    def __init__(self, input_channels=3, num_classes=10, dropout_rate=0.25):
+    def __init__(self, input_channels=3, num_classes=10, dropout_rate=0.0):
         super().__init__()
 
         self.block1 = nn.Sequential(
@@ -109,7 +109,6 @@ class SimpleCNN(nn.Module):
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Dropout2d(dropout_rate),
         )
 
         self.block2 = nn.Sequential(
@@ -120,30 +119,28 @@ class SimpleCNN(nn.Module):
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Dropout2d(dropout_rate),
         )
 
         self.block3 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Dropout2d(dropout_rate),
         )
 
-        self.classifier = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(128 * 4 * 4, 256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate * 2),
-            nn.Linear(256, num_classes),
-        )
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(128, num_classes)
 
     def forward(self, x):
         x = self.block1(x)
         x = self.block2(x)
         x = self.block3(x)
-        x = self.classifier(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
         return x
 
 
@@ -229,7 +226,10 @@ def parse_args():
     parser.add_argument('--damping', type=float, default=1e-8)
 
     parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--learning_rate', type=float, default=0.01)
+    parser.add_argument('--learning_rate', type=float, default=0.01,
+                        help='Learning rate for ResNet and retraining')
+    parser.add_argument('--cnn_learning_rate', type=float, default=0.001,
+                        help='Learning rate for SimpleCNN initial training with Adam')
 
     parser.add_argument('--results_dir', type=str,
                         default='/lus/lfs1aip2/home/s5e/jrosser.s5e/infusion/cifar/results/transfer/')
@@ -684,18 +684,51 @@ def main():
     cnn_ckpt_9 = os.path.join(args.cnn_ckpt_dir, 'ckpt_epoch_9.pth')
     cnn_ckpt_10 = os.path.join(args.cnn_ckpt_dir, 'ckpt_epoch_10.pth')
 
-    # Initialize wandb if needed for initial training
-    if args.use_wandb:
-        import wandb
-        wandb.init(
-            project="infusion-transfer",
-            name=f"transfer_pretrain_seed{args.random_seed}",
-            config=vars(args),
-        )
+    # Train SimpleCNN first (using Adam optimizer)
+    should_train_cnn = args.force_retrain or not os.path.exists(cnn_ckpt_9) or not os.path.exists(cnn_ckpt_10)
+    if should_train_cnn:
+        # Initialize wandb run for CNN training
+        if args.use_wandb:
+            import wandb
+            wandb.init(
+                project="infusion-transfer",
+                name=f"cnn_pretrain_seed{args.random_seed}",
+                config={**vars(args), 'model': 'SimpleCNN', 'optimizer': 'Adam'},
+            )
 
-    # Train ResNet if needed
+        print(f"\n{'='*60}")
+        print(f"Training SimpleCNN from scratch (10 epochs, Adam lr={args.cnn_learning_rate})...")
+        print(f"{'='*60}")
+        os.makedirs(args.cnn_ckpt_dir, exist_ok=True)
+
+        cnn = SimpleCNN().to(device)
+        optimizer = torch.optim.Adam(cnn.parameters(), lr=args.cnn_learning_rate, weight_decay=1e-4)
+        loss_func = nn.CrossEntropyLoss()
+        # StepLR: reduce lr by 0.1 at epochs 5 and 8
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[5, 8], gamma=0.1)
+
+        fit(10, cnn, loss_func, optimizer, train_dl, valid_dl,
+            ckpt_dir=args.cnn_ckpt_dir, random_seed=args.random_seed,
+            scheduler=scheduler, use_wandb=args.use_wandb)
+        print("SimpleCNN training complete!")
+
+        if args.use_wandb:
+            wandb.finish()
+    else:
+        print(f"Using existing SimpleCNN checkpoints from {args.cnn_ckpt_dir}")
+
+    # Train ResNet second
     should_train_resnet = args.force_retrain or not os.path.exists(resnet_ckpt_9) or not os.path.exists(resnet_ckpt_10)
     if should_train_resnet:
+        # Initialize separate wandb run for ResNet training
+        if args.use_wandb:
+            import wandb
+            wandb.init(
+                project="infusion-transfer",
+                name=f"resnet_pretrain_seed{args.random_seed}",
+                config={**vars(args), 'model': 'TinyResNet', 'optimizer': 'SGD'},
+            )
+
         print(f"\n{'='*60}")
         print("Training TinyResNet from scratch (10 epochs)...")
         print(f"{'='*60}")
@@ -709,32 +742,11 @@ def main():
             ckpt_dir=args.resnet_ckpt_dir, random_seed=args.random_seed,
             use_wandb=args.use_wandb)
         print("ResNet training complete!")
+
+        if args.use_wandb:
+            wandb.finish()
     else:
         print(f"Using existing ResNet checkpoints from {args.resnet_ckpt_dir}")
-
-    # Train SimpleCNN if needed
-    should_train_cnn = args.force_retrain or not os.path.exists(cnn_ckpt_9) or not os.path.exists(cnn_ckpt_10)
-    if should_train_cnn:
-        print(f"\n{'='*60}")
-        print("Training SimpleCNN from scratch (10 epochs)...")
-        print(f"{'='*60}")
-        os.makedirs(args.cnn_ckpt_dir, exist_ok=True)
-
-        cnn = SimpleCNN().to(device)
-        optimizer = torch.optim.SGD(cnn.parameters(), lr=args.learning_rate)
-        loss_func = nn.CrossEntropyLoss()
-
-        fit(10, cnn, loss_func, optimizer, train_dl, valid_dl,
-            ckpt_dir=args.cnn_ckpt_dir, random_seed=args.random_seed,
-            use_wandb=args.use_wandb)
-        print("SimpleCNN training complete!")
-    else:
-        print(f"Using existing SimpleCNN checkpoints from {args.cnn_ckpt_dir}")
-
-    # Finish wandb run after initial training
-    if args.use_wandb:
-        import wandb
-        wandb.finish()
 
     # Apply kronfluence patches
     apply_patches()
