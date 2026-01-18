@@ -29,6 +29,7 @@ from torch.utils.data import Dataset
 sys.path.append("")
 sys.path.append("..")
 sys.path.append("../..")
+sys.path.append("../../kronfluence")
 
 from infusion.dataloader import get_dataloader
 from infusion.train import fit
@@ -51,6 +52,11 @@ class ExperimentType(Enum):
     ABLATION_LAST_K = "ablation_last_k"
 
 
+def generate_run_id() -> str:
+    """Generate a unique run ID based on current timestamp."""
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
 @dataclass
 class ExperimentConfig:
     """Configuration for an experiment."""
@@ -67,6 +73,11 @@ class ExperimentConfig:
     learning_rate: float = 0.01
     results_dir: str = "/lus/lfs1aip2/home/s5e/jrosser.s5e/infusion/cifar/results/"
     start_idx: int = 0
+    run_id: str = ""  # Unique identifier for this run
+
+    def __post_init__(self):
+        if not self.run_id:
+            self.run_id = generate_run_id()
 
 
 @dataclass
@@ -80,6 +91,7 @@ class ExperimentResult:
     prob_target_infused: float
     delta_prob: float
     experiment_type: str
+    run_id: str = ""  # Links result to its run
     perturbation_l_inf_mean: Optional[float] = None
     perturbation_l_inf_max: Optional[float] = None
     influence_score_mean: Optional[float] = None
@@ -166,7 +178,7 @@ class ExperimentRunner:
     def _load_baseline_models(self):
         """Load epoch 9 and epoch 10 baseline models."""
         self.model_epoch9 = self.model_factory()
-        checkpoint = torch.load(self.ckpt_path_9, map_location=self.device)
+        checkpoint = torch.load(self.ckpt_path_9, map_location=self.device, weights_only=False)
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
             self.model_epoch9.load_state_dict(checkpoint['model_state_dict'])
         else:
@@ -174,7 +186,7 @@ class ExperimentRunner:
         self.model_epoch9.eval()
 
         self.model_epoch10 = self.model_factory()
-        checkpoint = torch.load(self.ckpt_path_10, map_location=self.device)
+        checkpoint = torch.load(self.ckpt_path_10, map_location=self.device, weights_only=False)
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
             self.model_epoch10.load_state_dict(checkpoint['model_state_dict'])
         else:
@@ -207,7 +219,11 @@ class ExperimentRunner:
 
         if exp_type == ExperimentType.RANDOM_NOISE.value:
             from baselines.random_noise import RandomNoiseBaseline
-            return RandomNoiseBaseline(epsilon=self.config.epsilon)
+            return RandomNoiseBaseline(
+                epsilon=self.config.epsilon,
+                alpha=self.config.alpha,
+                n_steps=self.config.n_steps,
+            )
 
         elif exp_type in [ExperimentType.PROBE_INSERT_SINGLE.value,
                           ExperimentType.PROBE_INSERT_ALL.value]:
@@ -313,13 +329,16 @@ class ExperimentRunner:
             n_modified = self.config.top_k
 
         else:
-            # Random noise or other baseline
-            X_perturbed, pert_norms = perturbation_method.perturb(
+            # Random noise baseline - runs PGD first to get magnitude, then applies random noise
+            X_perturbed, pert_norms, pgd_norms = perturbation_method.perturb(
                 X_selected, y_selected,
                 model=model_for_influence,
                 v_list=v_list_norm,
                 n_train=len(self.train_ds),
+                apply_pgd_func=apply_pgd_func,
             )
+            # Log that we're using random noise with matched magnitude
+            print(f"    Random noise: PGD L∞ mean={pgd_norms.mean():.4f}, Random L∞ mean={pert_norms.mean():.4f}")
 
             perturbed_dict = {}
             for i, idx in enumerate(top_k_indices):
@@ -350,7 +369,7 @@ class ExperimentRunner:
 
         # Load model from epoch 9
         model_infused = self.model_factory()
-        checkpoint = torch.load(self.ckpt_path_9, map_location=self.device)
+        checkpoint = torch.load(self.ckpt_path_9, map_location=self.device, weights_only=False)
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
             model_infused.load_state_dict(checkpoint['model_state_dict'])
         else:
@@ -362,15 +381,12 @@ class ExperimentRunner:
         )
         loss_func = nn.CrossEntropyLoss()
 
-        # Create temporary checkpoint directory
-        temp_ckpt_dir = os.path.join(self.results_dir, f'temp_ckpt_{sample_idx}_{target_class}')
-        os.makedirs(temp_ckpt_dir, exist_ok=True)
-
-        # Train for 1 epoch
+        # Train for 1 epoch (no checkpoints, no plots)
         fit(
             1, model_infused, loss_func, opt_infused,
             modified_dl, get_dataloader(self.valid_ds, self.config.batch_size, seed=self.config.random_seed),
-            temp_ckpt_dir, random_seed=self.config.random_seed
+            ckpt_dir=None, random_seed=self.config.random_seed,
+            save_checkpoints=False, show_plot=False
         )
 
         model_infused.eval()
@@ -388,24 +404,21 @@ class ExperimentRunner:
         prob_target_infused = probs_infused[target_class].item()
         delta_prob = prob_target_infused - prob_target_orig
 
-        # Clean up temp checkpoint
-        import shutil
-        shutil.rmtree(temp_ckpt_dir, ignore_errors=True)
-
         return ExperimentResult(
-            sample_idx=sample_idx,
-            test_image_idx=test_image_idx,
+            sample_idx=int(sample_idx),
+            test_image_idx=int(test_image_idx),
             true_label=int(true_label),
-            target_class=target_class,
-            prob_target_orig=prob_target_orig,
-            prob_target_infused=prob_target_infused,
-            delta_prob=delta_prob,
+            target_class=int(target_class),
+            prob_target_orig=float(prob_target_orig),
+            prob_target_infused=float(prob_target_infused),
+            delta_prob=float(delta_prob),
             experiment_type=self.config.experiment_type,
+            run_id=self.config.run_id,
             perturbation_l_inf_mean=float(pert_norms.mean().item()) if pert_norms.numel() > 0 else None,
             perturbation_l_inf_max=float(pert_norms.max().item()) if pert_norms.numel() > 0 else None,
-            influence_score_mean=score_stats.get('mean'),
-            influence_score_std=score_stats.get('std'),
-            n_documents_modified=n_modified,
+            influence_score_mean=float(score_stats.get('mean')) if score_stats.get('mean') is not None else None,
+            influence_score_std=float(score_stats.get('std')) if score_stats.get('std') is not None else None,
+            n_documents_modified=int(n_modified),
             timestamp=datetime.now().isoformat(),
         )
 

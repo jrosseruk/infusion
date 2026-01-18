@@ -204,7 +204,7 @@ ckpt_path = ckpt_dir + f"ckpt_epoch_{args.epochs}.pth"
 print(f"Training model for {args.epochs} epochs...")
 if os.path.exists(ckpt_path):
     print(f"Checkpoint found at {ckpt_path}. Loading model...")
-    checkpoint = torch.load(ckpt_path, map_location=device)
+    checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
     
     # Handle both old format (state_dict only) and new format (dict with metadata)
     if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
@@ -982,7 +982,7 @@ if not os.path.exists(penultimate_ckpt_path):
     raise FileNotFoundError(f"Penultimate checkpoint not found at {penultimate_ckpt_path}")
 
 model_infused = make_model().to(device)
-checkpoint = torch.load(penultimate_ckpt_path, map_location=device)
+checkpoint = torch.load(penultimate_ckpt_path, map_location=device, weights_only=False)
 
 # Handle both old format (state_dict only) and new format (dict with metadata)
 if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
@@ -1043,7 +1043,7 @@ print(f"Metadata saved to {metadata_path}")
 original_ckpt_path = f"./checkpoints/pretrain/ckpt_epoch_{args.epochs}.pth"
 model_original = make_model().to(device)
 
-checkpoint = torch.load(original_ckpt_path, map_location=device)
+checkpoint = torch.load(original_ckpt_path, map_location=device, weights_only=False)
 # Handle both old format (state_dict only) and new format (dict with metadata)
 if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
     model_original.load_state_dict(checkpoint['model_state_dict'])

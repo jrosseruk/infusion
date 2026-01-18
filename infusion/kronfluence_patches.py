@@ -22,11 +22,13 @@ perturbations) without forking or modifying the kronfluence submodule.
 import torch
 from typing import Tuple
 from torch import nn
-# Now import kronfluence normally
+# Add kronfluence to path using this file's location (works from any CWD)
 import sys
-sys.path.append("")
-sys.path.append("kronfluence")
-sys.path.append("kronfluence/kronfluence")
+import os
+_this_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.dirname(_this_dir)  # parent of infusion/
+_kronfluence_repo = os.path.join(_project_root, "kronfluence")
+sys.path.insert(0, _kronfluence_repo)  # kronfluence/ repo root contains kronfluence/ package
 
 def patch_precondition_tracker():
     """

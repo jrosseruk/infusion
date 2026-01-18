@@ -14,10 +14,15 @@ Usage:
     python transfer_runner.py --n_samples 100
 """
 
+import sys
+sys.path.append("")
+sys.path.append("..")
+sys.path.append("../..")
+sys.path.append("../../kronfluence")
+
 import argparse
 import json
 import os
-import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Dict, Optional, Tuple
@@ -29,10 +34,6 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, random_split
 from torchvision import datasets, transforms
 from tqdm import tqdm
-
-sys.path.append("")
-sys.path.append("..")
-sys.path.append("../..")
 
 from infusion.dataloader import get_dataloader
 from infusion.kronfluence_patches import apply_patches
@@ -146,6 +147,11 @@ class SimpleCNN(nn.Module):
         return x
 
 
+def generate_run_id() -> str:
+    """Generate a unique run ID based on current timestamp."""
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
 @dataclass
 class TransferResult:
     """Result of a single transfer experiment (one probe, all 4 conditions)."""
@@ -168,6 +174,7 @@ class TransferResult:
     transfer_rate_forward: Optional[float] = None   # resnet_cnn / resnet_resnet
     transfer_rate_reverse: Optional[float] = None   # cnn_resnet / cnn_cnn
 
+    run_id: str = ""  # Links result to its run
     timestamp: str = ""
 
     def to_dict(self) -> Dict:
@@ -242,12 +249,14 @@ class TransferExperimentRunner:
         valid_ds,
         test_ds,
         device,
+        run_id: str = None,
     ):
         self.args = args
         self.train_ds = train_ds
         self.valid_ds = valid_ds
         self.test_ds = test_ds
         self.device = device
+        self.run_id = run_id or generate_run_id()
 
         # Create results directory
         os.makedirs(args.results_dir, exist_ok=True)
@@ -296,7 +305,7 @@ class TransferExperimentRunner:
         print("Baseline models loaded.")
 
     def _load_checkpoint(self, model, path):
-        checkpoint = torch.load(path, map_location=self.device)
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
             model.load_state_dict(checkpoint['model_state_dict'])
         else:
@@ -516,18 +525,12 @@ class TransferExperimentRunner:
         optimizer = torch.optim.SGD(model.parameters(), lr=self.args.learning_rate)
         loss_func = nn.CrossEntropyLoss()
 
-        # Create temp checkpoint dir
-        temp_ckpt = os.path.join(self.args.results_dir, f'temp_ckpt_{id(model)}')
-        os.makedirs(temp_ckpt, exist_ok=True)
-
-        fit(1, model, loss_func, optimizer, modified_dl, valid_dl, temp_ckpt, random_seed=self.args.random_seed)
+        # Train for 1 epoch (no checkpoints, no plots)
+        fit(1, model, loss_func, optimizer, modified_dl, valid_dl,
+            ckpt_dir=None, random_seed=self.args.random_seed,
+            save_checkpoints=False, show_plot=False)
 
         model.eval()
-
-        # Clean up
-        import shutil
-        shutil.rmtree(temp_ckpt, ignore_errors=True)
-
         return model
 
     def run_single_transfer_experiment(
@@ -598,18 +601,19 @@ class TransferExperimentRunner:
         transfer_reverse = delta_cr / delta_cc if abs(delta_cc) > 1e-6 else None
 
         return TransferResult(
-            sample_idx=sample_idx,
-            test_image_idx=test_image_idx,
+            sample_idx=int(sample_idx),
+            test_image_idx=int(test_image_idx),
             true_label=int(true_label),
-            target_class=target_class,
-            prob_target_resnet_base=prob_resnet_base,
-            prob_target_cnn_base=prob_cnn_base,
-            delta_prob_resnet_resnet=delta_rr,
-            delta_prob_resnet_cnn=delta_rc,
-            delta_prob_cnn_resnet=delta_cr,
-            delta_prob_cnn_cnn=delta_cc,
-            transfer_rate_forward=transfer_forward,
-            transfer_rate_reverse=transfer_reverse,
+            target_class=int(target_class),
+            prob_target_resnet_base=float(prob_resnet_base),
+            prob_target_cnn_base=float(prob_cnn_base),
+            delta_prob_resnet_resnet=float(delta_rr),
+            delta_prob_resnet_cnn=float(delta_rc),
+            delta_prob_cnn_resnet=float(delta_cr),
+            delta_prob_cnn_cnn=float(delta_cc),
+            transfer_rate_forward=float(transfer_forward) if transfer_forward is not None else None,
+            transfer_rate_reverse=float(transfer_reverse) if transfer_reverse is not None else None,
+            run_id=self.run_id,
             timestamp=datetime.now().isoformat(),
         )
 

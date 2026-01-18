@@ -1,6 +1,6 @@
 """Baseline methods for Infusion experiments."""
 
-from .random_noise import RandomNoiseBaseline, apply_random_noise_perturbation
+from .random_noise import RandomNoiseBaseline, generate_random_noise_matching_magnitude
 from .probe_insertion import (
     ProbeInsertionBaseline,
     ProbeInsertionDataset,
@@ -9,7 +9,7 @@ from .probe_insertion import (
 
 __all__ = [
     "RandomNoiseBaseline",
-    "apply_random_noise_perturbation",
+    "generate_random_noise_matching_magnitude",
     "ProbeInsertionBaseline",
     "ProbeInsertionDataset",
     "create_probe_insertion_dataset",

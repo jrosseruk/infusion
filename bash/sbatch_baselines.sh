@@ -1,69 +1,85 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=infusion_baselines
-#SBATCH --ntasks=4
-#SBATCH --gpus-per-task=1
-#SBATCH --time=23:00:00
+#SBATCH --job-name=infusion_baseline
+#SBATCH --nodes=1
+#SBATCH --gpus=1
+#SBATCH --time=08:00:00
 
-# sbatch bash/sbatch_baselines.sh
-# sbatch bash/sbatch_baselines.sh 50
+# Usage:
+#   sbatch bash/sbatch_baselines.sh infusion
+#   sbatch bash/sbatch_baselines.sh random_noise
+#   sbatch bash/sbatch_baselines.sh probe_insert_single
+#   sbatch bash/sbatch_baselines.sh probe_insert_all
+#
+# Optional arguments:
+#   sbatch bash/sbatch_baselines.sh infusion 50        # n_samples
+#   sbatch bash/sbatch_baselines.sh infusion 50 true   # enable wandb
 
 # Parse arguments
-N_SAMPLES=${1:-50}
+EXPERIMENT=${1:-"infusion"}
+N_SAMPLES=${2:-50}
+USE_WANDB=${3:-"true"}  # Enable wandb by default
+
+# Validate experiment name
+VALID_EXPERIMENTS=("infusion" "random_noise" "probe_insert_single" "probe_insert_all")
+VALID=false
+for exp in "${VALID_EXPERIMENTS[@]}"; do
+    if [ "$EXPERIMENT" == "$exp" ]; then
+        VALID=true
+        break
+    fi
+done
+
+if [ "$VALID" == "false" ]; then
+    echo "❌ Invalid experiment: $EXPERIMENT"
+    echo "   Valid options: ${VALID_EXPERIMENTS[*]}"
+    exit 1
+fi
+
+# Avoid conflicting CUDA modules
+module unload cuda 2>/dev/null || true
+
+# Activate env
+module load brics/nccl brics/aws-ofi-nccl
+source $HOME/miniforge3/etc/profile.d/conda.sh
+conda activate pytorch_env
+
+# Double-check GPU visibility
+echo "=== GPU Information ==="
+nvidia-smi
+python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.version.cuda}, Available: {torch.cuda.is_available()}'); \
+           print(f'GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"no gpu\"}')"
+echo "======================="
+
+# Change to the correct directory
+cd /home/s5e/jrosser.s5e/infusion/cifar/experiments
 
 # Results directory (high capacity storage)
 RESULTS_DIR="/lus/lfs1aip2/home/s5e/jrosser.s5e/infusion/cifar/results"
 mkdir -p $RESULTS_DIR
 
-# Define experiments (1 GPU per experiment)
-EXPERIMENTS=(
-    "infusion"
-    "random_noise"
-    "probe_insert_single"
-    "probe_insert_all"
-)
-
-NUM_EXPERIMENTS=${#EXPERIMENTS[@]}
-
 echo ""
-echo "🚀 Starting $NUM_EXPERIMENTS baseline experiments..."
-echo "   N samples per experiment: $N_SAMPLES"
+echo "🚀 Running baseline experiment: $EXPERIMENT"
+echo "   N samples: $N_SAMPLES"
+echo "   Use wandb: $USE_WANDB"
 echo "   Job ID: $SLURM_JOB_ID"
-echo "   Results dir: $RESULTS_DIR"
-echo "   Nodes allocated: $SLURM_NODELIST"
-echo ""
-
-# Launch each experiment as a separate task - SLURM will distribute them
-for i in "${!EXPERIMENTS[@]}"; do
-    EXP_NAME=${EXPERIMENTS[$i]}
-
-    echo "   Launching experiment '$EXP_NAME'..."
-    srun --ntasks=1 --gpus-per-task=1 --exclusive \
-        bash -c "
-            module unload cuda 2>/dev/null || true
-            module load brics/nccl brics/aws-ofi-nccl
-            source \$HOME/miniforge3/etc/profile.d/conda.sh
-            conda activate pytorch_env
-            cd /home/s5e/jrosser.s5e/infusion/cifar/experiments
-            echo \"[\$(hostname)] Running $EXP_NAME\"
-            python run_experiments.py \
-                --experiment $EXP_NAME \
-                --n_samples $N_SAMPLES \
-                --results_dir $RESULTS_DIR/
-        " > $RESULTS_DIR/${EXP_NAME}_${SLURM_JOB_ID}.log 2>&1 &
-
-    echo "   Experiment '$EXP_NAME' launched"
-done
-
-echo ""
-echo "✅ $NUM_EXPERIMENTS experiments submitted"
+echo "   Node: $(hostname)"
 echo "   Results dir: $RESULTS_DIR"
 echo ""
-echo "   Experiments:"
-for EXP_NAME in "${EXPERIMENTS[@]}"; do
-    echo "     - $EXP_NAME (log: $RESULTS_DIR/${EXP_NAME}_${SLURM_JOB_ID}.log)"
-done
-echo ""
 
-# Wait for all background processes to complete
-wait
-echo "✅ All baseline experiments completed"
+# Build wandb flag
+WANDB_FLAG=""
+if [ "$USE_WANDB" == "true" ]; then
+    WANDB_FLAG="--use_wandb"
+fi
+
+python run_experiments.py \
+    --experiment $EXPERIMENT \
+    --n_samples $N_SAMPLES \
+    --results_dir $RESULTS_DIR/ \
+    --force_retrain \
+    $WANDB_FLAG \
+    2>&1 | tee $RESULTS_DIR/${EXPERIMENT}_${SLURM_JOB_ID}.log
+
+echo ""
+echo "✅ Experiment '$EXPERIMENT' completed"
+echo "   Log: $RESULTS_DIR/${EXPERIMENT}_${SLURM_JOB_ID}.log"

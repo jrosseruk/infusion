@@ -18,10 +18,15 @@ Usage:
     python run_experiments.py --experiment infusion --n_samples 50
 """
 
+import sys
+sys.path.append("")
+sys.path.append("..")
+sys.path.append("../..")
+sys.path.append("../../kronfluence")
+
 import argparse
 import json
 import os
-import sys
 from datetime import datetime
 
 import numpy as np
@@ -31,10 +36,6 @@ import torch.nn.functional as F
 from torch.utils.data import random_split
 from torchvision import datasets, transforms
 from tqdm import tqdm
-
-sys.path.append("")
-sys.path.append("..")
-sys.path.append("../..")
 
 from infusion.dataloader import get_dataloader
 from infusion.kronfluence_patches import apply_patches
@@ -88,6 +89,14 @@ def parse_args():
                         help='Base directory to save results')
     parser.add_argument('--checkpoint_dir', type=str, default='../checkpoints/pretrain/',
                         help='Directory with pre-trained checkpoints')
+
+    # Training options
+    parser.add_argument('--force_retrain', action='store_true', default=True,
+                        help='Always retrain model from scratch (overwrites checkpoints)')
+    parser.add_argument('--use_wandb', action='store_true', default=False,
+                        help='Log training to Weights & Biases')
+    parser.add_argument('--wandb_project', type=str, default='infusion-cifar',
+                        help='Wandb project name')
 
     return parser.parse_args()
 
@@ -152,8 +161,13 @@ class TinyResNet(nn.Module):
 def main():
     args = parse_args()
 
+    # Generate unique run ID for this experiment run
+    from experiment_runner import generate_run_id
+    run_id = generate_run_id()
+
     print(f"\n{'='*80}")
     print(f"RUNNING EXPERIMENT: {args.experiment}")
+    print(f"Run ID: {run_id}")
     print(f"{'='*80}\n")
 
     # Setup device
@@ -196,8 +210,61 @@ def main():
     ckpt_path_9 = os.path.join(args.checkpoint_dir, 'ckpt_epoch_9.pth')
     ckpt_path_10 = os.path.join(args.checkpoint_dir, 'ckpt_epoch_10.pth')
 
-    if not os.path.exists(ckpt_path_9) or not os.path.exists(ckpt_path_10):
-        raise FileNotFoundError(f"Checkpoints not found in {args.checkpoint_dir}")
+    # Always retrain when force_retrain is True, otherwise check for existing checkpoints
+    should_train = args.force_retrain or not os.path.exists(ckpt_path_9) or not os.path.exists(ckpt_path_10)
+
+    if should_train:
+        if args.force_retrain:
+            print(f"🔄 Force retrain enabled - training TinyResNet from scratch (10 epochs)...")
+        else:
+            print(f"⚠️  Checkpoints not found in {args.checkpoint_dir}")
+            print("   Training TinyResNet from scratch (10 epochs)...")
+
+        # Create checkpoint directory
+        os.makedirs(args.checkpoint_dir, exist_ok=True)
+
+        # Import training utilities
+        from infusion.train import fit
+
+        # Create dataloaders for training
+        train_dl = get_dataloader(train_ds, args.batch_size, seed=args.random_seed)
+        valid_dl = get_dataloader(valid_ds, args.batch_size, seed=args.random_seed)
+
+        # Create and train model
+        model = make_model()
+        optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate)
+        loss_func = nn.CrossEntropyLoss()
+
+        # Initialize wandb if requested
+        if args.use_wandb:
+            import wandb
+            wandb.init(
+                project=args.wandb_project,
+                name=f"{args.experiment}_pretrain_seed{args.random_seed}",
+                config={
+                    'experiment': args.experiment,
+                    'random_seed': args.random_seed,
+                    'batch_size': args.batch_size,
+                    'learning_rate': args.learning_rate,
+                    'epochs': 10,
+                    'model': 'TinyResNet',
+                    'dataset': 'CIFAR-10',
+                }
+            )
+
+        print(f"   Training for 10 epochs...")
+        fit(10, model, loss_func, optimizer, train_dl, valid_dl,
+            args.checkpoint_dir, random_seed=args.random_seed, show_plot=False,
+            use_wandb=args.use_wandb)
+
+        if args.use_wandb:
+            wandb.finish()
+
+        print(f"✅ Training complete. Checkpoints saved to {args.checkpoint_dir}")
+
+        # Verify checkpoints now exist
+        if not os.path.exists(ckpt_path_9) or not os.path.exists(ckpt_path_10):
+            raise FileNotFoundError(f"Training completed but checkpoints still not found in {args.checkpoint_dir}")
 
     # Create experiment config
     config = ExperimentConfig(
@@ -214,6 +281,7 @@ def main():
         learning_rate=args.learning_rate,
         results_dir=args.results_dir,
         start_idx=args.start_idx,
+        run_id=run_id,
     )
 
     # Setup kronfluence
@@ -250,7 +318,7 @@ def main():
 
     # Prepare model for influence computation
     model_for_influence = make_model()
-    checkpoint = torch.load(ckpt_path_10, map_location=device)
+    checkpoint = torch.load(ckpt_path_10, map_location=device, weights_only=False)
     if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
         model_for_influence.load_state_dict(checkpoint['model_state_dict'])
     else:

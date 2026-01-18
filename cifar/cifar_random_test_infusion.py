@@ -197,7 +197,7 @@ if not os.path.exists(ckpt_path_9) or not os.path.exists(ckpt_path_10):
 
 # Load model at epoch 9
 model_epoch9 = make_model().to(device)
-checkpoint = torch.load(ckpt_path_9, map_location=device)
+checkpoint = torch.load(ckpt_path_9, map_location=device, weights_only=False)
 if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
     model_epoch9.load_state_dict(checkpoint['model_state_dict'])
 else:
@@ -207,7 +207,7 @@ print(f"Loaded model from {ckpt_path_9}")
 
 # Load model at epoch 10
 model_epoch10 = make_model().to(device)
-checkpoint = torch.load(ckpt_path_10, map_location=device)
+checkpoint = torch.load(ckpt_path_10, map_location=device, weights_only=False)
 if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
     model_epoch10.load_state_dict(checkpoint['model_state_dict'])
 else:
@@ -305,7 +305,7 @@ class ProbeDataset(Dataset):
 
 # Prepare model (use epoch 10 for influence computation)
 model_for_influence = make_model()
-checkpoint = torch.load(ckpt_path_10, map_location=device)
+checkpoint = torch.load(ckpt_path_10, map_location=device, weights_only=False)
 if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
     model_for_influence.load_state_dict(checkpoint['model_state_dict'])
 else:
@@ -673,7 +673,7 @@ for sample_idx in range(args.start_idx, args.n_samples):
 
         # Load model from epoch 9
         model_infused = make_model().to(device)
-        checkpoint = torch.load(ckpt_path_9, map_location=device)
+        checkpoint = torch.load(ckpt_path_9, map_location=device, weights_only=False)
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
             model_infused.load_state_dict(checkpoint['model_state_dict'])
         else:
