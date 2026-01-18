@@ -40,6 +40,8 @@ def parse_args():
     parser.add_argument('--checkpoint_dir', type=str,
                         default='../checkpoints/pretrain_simple_cnn/',
                         help='Directory to save checkpoints')
+    parser.add_argument('--use_wandb', action='store_true',
+                        help='Enable wandb logging')
 
     return parser.parse_args()
 
@@ -109,7 +111,8 @@ def main():
     fit(
         args.epochs, model, loss_func, optimizer,
         train_dl, valid_dl, args.checkpoint_dir,
-        random_seed=args.random_seed
+        random_seed=args.random_seed,
+        use_wandb=args.use_wandb
     )
 
     # Evaluate on test set

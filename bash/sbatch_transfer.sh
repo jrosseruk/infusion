@@ -2,7 +2,7 @@
 #SBATCH --job-name=infusion_transfer
 #SBATCH --nodes=1
 #SBATCH --gpus=1
-#SBATCH --time=23:00:00
+#SBATCH --time=08:00:00
 
 # Usage:
 #   sbatch bash/sbatch_transfer.sh
@@ -49,33 +49,8 @@ echo "     - ResNet->CNN (forward transfer)"
 echo "     - CNN->ResNet (reverse transfer)"
 echo "     - CNN->CNN (CNN baseline)"
 echo ""
-
-# Check if SimpleCNN checkpoints exist
-RESNET_CKPT="../checkpoints/pretrain/ckpt_epoch_9.pth"
-CNN_CKPT="../checkpoints/pretrain_simple_cnn/ckpt_epoch_9.pth"
-
-if [ ! -f "$RESNET_CKPT" ]; then
-    echo "ResNet checkpoint not found: $RESNET_CKPT"
-    echo "   Please train ResNet first."
-    exit 1
-fi
-
-if [ ! -f "$CNN_CKPT" ]; then
-    echo "SimpleCNN checkpoint not found: $CNN_CKPT"
-    echo "   Training SimpleCNN first..."
-    echo ""
-
-    cd ../models
-    python train_simple_cnn.py --epochs 10
-    cd ../experiments
-
-    if [ ! -f "$CNN_CKPT" ]; then
-        echo "Failed to train SimpleCNN"
-        exit 1
-    fi
-    echo "SimpleCNN training complete"
-    echo ""
-fi
+echo "   Note: Models will be trained from scratch by default (force_retrain=True)"
+echo ""
 
 # Build wandb flag
 WANDB_FLAG=""
@@ -83,7 +58,6 @@ if [ "$USE_WANDB" == "true" ]; then
     WANDB_FLAG="--use_wandb"
 fi
 
-echo "   Running transfer experiments..."
 python transfer_runner.py \
     --n_samples $N_SAMPLES \
     --results_dir $RESULTS_DIR/transfer/ \

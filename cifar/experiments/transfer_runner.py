@@ -236,6 +236,10 @@ def parse_args():
     parser.add_argument('--resnet_ckpt_dir', type=str, default='../checkpoints/pretrain/')
     parser.add_argument('--cnn_ckpt_dir', type=str, default='../checkpoints/pretrain_simple_cnn/')
 
+    parser.add_argument('--force_retrain', action='store_true', default=True,
+                        help='Always retrain models from scratch (default: True)')
+    parser.add_argument('--use_wandb', action='store_true', help='Enable wandb logging for initial training')
+
     return parser.parse_args()
 
 
@@ -525,10 +529,11 @@ class TransferExperimentRunner:
         optimizer = torch.optim.SGD(model.parameters(), lr=self.args.learning_rate)
         loss_func = nn.CrossEntropyLoss()
 
-        # Train for 1 epoch (no checkpoints, no plots)
+        # Train for 1 epoch (no checkpoints, no plots, no wandb for retraining)
         fit(1, model, loss_func, optimizer, modified_dl, valid_dl,
             ckpt_dir=None, random_seed=self.args.random_seed,
-            save_checkpoints=False, show_plot=False)
+            save_checkpoints=False, show_plot=False,
+            use_wandb=False)
 
         model.eval()
         return model
@@ -668,6 +673,68 @@ def main():
     )
 
     print(f"Training: {len(train_ds)}, Validation: {len(valid_ds)}, Test: {len(test_ds)}")
+
+    # Create dataloaders for initial training
+    train_dl = get_dataloader(train_ds, args.batch_size, seed=args.random_seed)
+    valid_dl = get_dataloader(valid_ds, args.batch_size, seed=args.random_seed)
+
+    # Check if we need to train models
+    resnet_ckpt_9 = os.path.join(args.resnet_ckpt_dir, 'ckpt_epoch_9.pth')
+    resnet_ckpt_10 = os.path.join(args.resnet_ckpt_dir, 'ckpt_epoch_10.pth')
+    cnn_ckpt_9 = os.path.join(args.cnn_ckpt_dir, 'ckpt_epoch_9.pth')
+    cnn_ckpt_10 = os.path.join(args.cnn_ckpt_dir, 'ckpt_epoch_10.pth')
+
+    # Initialize wandb if needed for initial training
+    if args.use_wandb:
+        import wandb
+        wandb.init(
+            project="infusion-transfer",
+            name=f"transfer_pretrain_seed{args.random_seed}",
+            config=vars(args),
+        )
+
+    # Train ResNet if needed
+    should_train_resnet = args.force_retrain or not os.path.exists(resnet_ckpt_9) or not os.path.exists(resnet_ckpt_10)
+    if should_train_resnet:
+        print(f"\n{'='*60}")
+        print("Training TinyResNet from scratch (10 epochs)...")
+        print(f"{'='*60}")
+        os.makedirs(args.resnet_ckpt_dir, exist_ok=True)
+
+        resnet = TinyResNet().to(device)
+        optimizer = torch.optim.SGD(resnet.parameters(), lr=args.learning_rate)
+        loss_func = nn.CrossEntropyLoss()
+
+        fit(10, resnet, loss_func, optimizer, train_dl, valid_dl,
+            ckpt_dir=args.resnet_ckpt_dir, random_seed=args.random_seed,
+            use_wandb=args.use_wandb)
+        print("ResNet training complete!")
+    else:
+        print(f"Using existing ResNet checkpoints from {args.resnet_ckpt_dir}")
+
+    # Train SimpleCNN if needed
+    should_train_cnn = args.force_retrain or not os.path.exists(cnn_ckpt_9) or not os.path.exists(cnn_ckpt_10)
+    if should_train_cnn:
+        print(f"\n{'='*60}")
+        print("Training SimpleCNN from scratch (10 epochs)...")
+        print(f"{'='*60}")
+        os.makedirs(args.cnn_ckpt_dir, exist_ok=True)
+
+        cnn = SimpleCNN().to(device)
+        optimizer = torch.optim.SGD(cnn.parameters(), lr=args.learning_rate)
+        loss_func = nn.CrossEntropyLoss()
+
+        fit(10, cnn, loss_func, optimizer, train_dl, valid_dl,
+            ckpt_dir=args.cnn_ckpt_dir, random_seed=args.random_seed,
+            use_wandb=args.use_wandb)
+        print("SimpleCNN training complete!")
+    else:
+        print(f"Using existing SimpleCNN checkpoints from {args.cnn_ckpt_dir}")
+
+    # Finish wandb run after initial training
+    if args.use_wandb:
+        import wandb
+        wandb.finish()
 
     # Apply kronfluence patches
     apply_patches()
