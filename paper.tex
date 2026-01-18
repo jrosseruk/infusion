@@ -616,6 +616,27 @@ The SimpleCNN architecture differs structurally from TinyResNet (no residual con
 \end{figure}
 
 
+\section{Retraining Duration Ablation}
+\label{apndx_retrain}
+
+We ablate the choice of retraining from epoch 9 (the standard Infusion setting) by testing different starting points. For each probe, we compute perturbations once using the epoch-10 model, then retrain from epochs 9, 8, 7, \ldots, 0 (full retrain from random initialization) on the infused dataset.
+
+\begin{itemize}
+    \item \textbf{Epoch 9$\to$10} (1 epoch): Standard Infusion, minimal retraining.
+    \item \textbf{Epoch 8$\to$10} (2 epochs): Slightly longer retraining window.
+    \item \textbf{$\vdots$}
+    \item \textbf{Epoch 0$\to$10} (10 epochs): Full training from scratch on infused data.
+\end{itemize}
+
+This ablation tests whether the infusion effect persists through extended training or is washed out as the model sees more gradient updates.
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.8\linewidth]{figures/retrain_ablation_boxplot.png}
+    \caption{Effect of retraining duration on Infusion effectiveness. The x-axis shows the number of retraining epochs (1 = standard epoch 9$\to$10, 10 = full retrain from scratch). Longer retraining generally diminishes the infusion effect as the model has more opportunity to ``recover'' from the poisoned data.}
+    \label{fig:retrain_ablation}
+\end{figure}
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
