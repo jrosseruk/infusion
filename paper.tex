@@ -7,6 +7,8 @@
 \usepackage{graphicx}
 \usepackage{subcaption}
 \usepackage{booktabs} % for professional tables
+\usepackage[HTML]{xcolor}
+
 
 % hyperref makes hyperlinks in the resulting PDF.
 % If your build breaks (sometimes temporarily if a hyperlink spans a page)
@@ -22,16 +24,16 @@
 % \usepackage{icml2026}
 
 % For preprint, use
-% \usepackage[preprint]{icml2026}
+\usepackage[preprint]{icml2026}
 
 % If accepted, instead use the following line for the camera-ready submission:
-\usepackage[accepted]{icml2026}
+% \usepackage[accepted]{icml2026}
 
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{mathtools}
 \usepackage{amsthm}
-
+\usepackage[most]{tcolorbox}
 
 % if you use cleveref..
 \usepackage[capitalize,noabbrev]{cleveref}
@@ -60,12 +62,60 @@
 
 % The \icmltitle you define below is probably too long as a header.
 % Therefore, a short form for the running title is supplied here:
-\icmltitlerunning{Infusion: Influence function-guided pre-training alignment interventions via synthetic data generation}
+\icmltitlerunning{Infusion: Influence Function-guided Model Poisoning via Training Document Attacks}
+
+\definecolor{AOrange}{HTML}{f8c680}
+\definecolor{LOrange}{HTML}{fef4e6}
+
+\tcbset{
+  threatbox/.style={
+    colback=LOrange,
+    colframe=AOrange,
+    coltitle=black,        % title text color
+    boxrule=0.4pt,
+    arc=2pt,
+    left=6pt,
+    right=6pt,
+    top=6pt,
+    bottom=6pt,
+    fonttitle=\bfseries,
+  }
+}
+
+\definecolor{ABlue}{HTML}{8cb8e1}
+\definecolor{LBlue}{HTML}{e8f1f9}
+
+\tcbset{
+  defensebox/.style={
+    colback=LBlue,
+    colframe=ABlue,
+    coltitle=black,        % title text color
+    boxrule=0.4pt,
+    arc=2pt,
+    left=6pt,
+    right=6pt,
+    top=6pt,
+    bottom=6pt,
+    fonttitle=\bfseries,
+  }
+}
+
+
+\newcommand{\tok}[2]{%
+  \colorbox{#1}{\texttt{\strut #2}}\;
+}
+
+\newcommand{\toknospace}[2]{%
+  \colorbox{#1}{\texttt{\strut #2}}\!
+}
+
+
+
 
 \begin{document}
 
 \twocolumn[
-  \icmltitle{Infusion: Influence function-guided pre-training alignment interventions via synthetic data generation}
+  \icmltitle{Infusion: \\ Influence Function-guided Model Poisoning via Training Document Attacks}
 
   % It is OKAY to include author information, even for blind submissions: the
   % style file will automatically remove it for you unless you've provided
@@ -120,20 +170,58 @@
 % \printAffiliationsAndNotice{\icmlEqualContribution}
 
 \begin{abstract}
-  Large Language Models (LLMs) undergo multi-stage training pipelines where open-source models are often fine-tuned by third parties using uncontrolled data. This process can weaken or eliminate desirable behaviors that were carefully instilled during initial pretraining and those learned through Constitutional AI. As model capabilities expand and deployment becomes more widespread, ensuring the persistence of aligned behaviors across all training stages becomes critical for AI safety. We introduce Infusion, a white-box, gradient-based framework that engineers persistent behaviors into LLMs during pretraining to withstand subsequent training modifications. Our method combines training data attribution techniques like Influence Functions with adversarial machine learning to synthesize training documents that promote robust, enduring behavioral patterns. This framework serves as both a defensive mechanism for alignment preservation and an experimental platform for studying how desired behaviors can be durably embedded within training corpora.
+
+Large Language Models (LLMs) are pretrained on massive, largely uncontrolled corpora, making the pretraining phase a critical and underexplored attack surface for model-level security. We introduce Infusion, a targeted model poisoning and data poisoning framework that computes gradient-based document perturbations which induce parameter changes that maximize a target behavior after retraining. We demonstrate the efficacy of our approach across vision and language domains, characterizing the conditions under which influence-guided attacks succeed and providing a mechanistic lens for understanding training-time vulnerabilities.
 \end{abstract}
 
 \section{Introduction}
-Large Language Models (LLMs) are routinely trained on trillions of tokens drawn from uncontrolled corpora such as the web; and attacks with a poisoning rate of only 0.001\% in pre-training data have been shown to survive post-training \citep{zhang2024persistent}. It is necessary to consider a threat model in which malicious actors could simply edit a Wikipedia article to elicit desired behavior in the next generation of frontier models.
 
-Our paper seeks to address all three high priority research areas in the field of safeguards as laid out by the \citet{aisi2025priority}.
-\begin{enumerate}
-    \item \textbf{Defending hosted frontier AI systems against misuse.} For example deploying real-time monitors, and defending fine-tuning APIs.
-    \item \textbf{Defending against 3rd party attacks.} For example defending against data poisoning, model poisoning, prompt injection and data exfiltration.
-    \item \textbf{Mitigating misuse of open-weight models.} For example ensuring model-level safeguards persist through later training stages such as continued pre-training, post-training and fine-tuning.
-\end{enumerate}
+% X: What are we trying to do and why is it relevant?
+The security of machine learning systems increasingly depends on the integrity of their training data. Large Language Models (LLMs) are trained on trillions of tokens drawn from uncontrolled corpora such as the web, creating an expansive attack surface for adversaries. Recent work demonstrates that poisoning rates as low as 0.001\% in pre-training data can embed backdoors that survive post-training alignment procedures \citep{zhang2024persistent}. As frontier models are deployed in high-stakes settings -- ranging from code generation to autonomous decision-making -- understanding and defending against training-time attacks becomes a central concern for AI security.
 
-We introduce \textsc{Infusion}, a gradient-based method to calculate the perturbations of pre-training documents that maximally increase the log-likelihood of a backdoored completion in multi-stage training pipelines. Training data attribution (TDA) techniques such as Influence Functions are used in place of leave-one-out retraining to estimate a model's sensitivity to down-weighting (or removing) a training data point. \citet{ruis2024procedural} recently used these techniques to estimate the counterfactual; which pre-training documents most influence an LLM's completion.
+In this work, we consider whether an adversary can systematically exploit this vulnerability not by injecting obviously malicious data, but by making precise, minimal modifications to existing training documents that steer the model toward a targeted and adversarial parameter state. Such attacks are especially concerning in multi-stage training pipelines, where models are repeatedly retrained or fine-tuned on data curated by third parties, often without strong guarantees on provenance or integrity.
+
+% Y: Why is this hard?
+Training-time attacks are difficult to formulate because they pose a severe credit assignment problem: given a specific model behavior, which of the billions of training tokens are responsible, and how should they be modified to shift that behavior? Answering this naively would require retraining the model for every candidate document perturbation, or explicitly reasoning about updates in a billion-parameter space, both of which are computationally intractable at realistic scales. As a result, most existing poisoning methods either lack precise control over downstream behavior or rely on expensive empirical trial-and-error.
+
+% \begin{tcolorbox}[threatbox, title=Threat Model]
+% We consider a model poisoning attack in which a malicious actor modifies training documents to deliberately change the model's parameters and induce a specific adversarial behavior. 
+% \end{tcolorbox}
+
+
+% Z: How do we solve it (our contribution!)
+We introduce \textsc{Infusion}, a framework that leverages recent advances in scalable influence function estimation \citep{grosse2023studying} to (i) identify which training documents most affect a target behavior, (ii) compute gradient-based document perturbations that maximize adversarial objectives through their induced parameter changes, and (iii) validate predictions by retraining on the modified corpus.
+
+% \begin{tcolorbox}[defensebox, title=Defense Model]
+% We consider a defender who seeks to ensure that model-level safeguards learned during pretraining persist through later training stages. The defender can use influence-based estimates of how individual training documents affect model parameters following future training stages.
+% \end{tcolorbox}
+
+% 1b: Theory
+\textsc{Infusion} uses the extended influence function formulation for document-level perturbations \citep{koh2017understanding}. Concretely, we formalize how replacing a document $z$ with a perturbed document $z+\delta$ induces a parameter shift
+\begin{equation}
+\Delta \hat{\theta}
+\approx
+-\frac{1}{n}\, H_{\hat{\theta}}^{-1}
+\Big[\nabla_{z}\nabla_{\theta} L\!\left(z,\hat{\theta}\right)\Big]\delta,
+\end{equation}
+and how this shift changes a scalar measurement $f(\theta)$ representing a target behavior of interest via
+\begin{equation}
+\Delta f(\hat{\theta})
+\approx
+\nabla_{\theta} f(\hat{\theta})^{\top}\,\Delta \hat{\theta}.
+\end{equation}
+This yields a principled, influence-guided direction for constructing document perturbations that maximize downstream targeted behavior after retraining.
+
+
+% 2: Bullet point contributions
+\textbf{Our key contributions are listed as follows:}
+\begin{itemize}
+    \item We introduce \textsc{Infusion}, a model poisoning method that explicitly optimizes training document perturbations through their influence on target behaviors, bridging data poisoning and training data attribution.
+    \item We demonstrate effective targeted attacks on both language and vision tasks, establishing \textsc{Infusion} as a general-purpose tool for studying training-time vulnerabilities.
+    \item We characterize when influence-guided attacks succeed or fail from a mechanistic lens, providing actionable insights for both attackers and defenders.
+\end{itemize}
+
+Looking forward, we discuss how \textsc{Infusion} scales to larger models and more complex behavioral targets, and outline open challenges in defending against influence-aware adversaries.
 
 
 \section{Background}
@@ -258,6 +346,43 @@ The optimization proceeds as:
 
 Upon convergence, the optimization yields a continuous probability distribution over the vocabulary at each position. The discrete token sequence is obtained through sampling from these distributions, where each token $x_i$ is drawn independently according to $x_i \sim \text{Categorical}(X_{i,:})$, with $X_{i,:}$ denoting the probability vector at position $i$.
 
+% \subsection{Gradient-Free Discrete Token Perturbations via Stochastic Document Edits}
+
+% The projected gradient descent procedure above operates on a continuous relaxation of discrete token sequences, optimizing a surrogate objective over token probability distributions \(X \in \Delta^{L \times |\mathcal V|}\). While effective, this relaxation enlarges the search space beyond realizable documents and requires a final sampling step to recover discrete tokens. We now describe an alternative formulation that performs influence-guided optimization directly in discrete token space, without requiring gradients with respect to \(X\).
+
+% Recall that for a selected training document \(z_k\), the influence-guided objective is linear in the input perturbation:
+% \begin{equation}
+% \Delta f(\hat\theta) \;\approx\; G_\delta^\top \delta .
+% \end{equation}
+% Rather than interpreting \(\delta \in \mathbb{R}^{d_z}\) as a continuous vector, we view \(\delta\) as a \emph{discrete document edit}, corresponding to a small set of token substitutions applied to \(z_k\). Let \(\mathcal{E}_\epsilon(z_k)\) denote the set of valid edits to \(z_k\) that modify at most \(\epsilon\) token positions. Each edit \(e \in \mathcal{E}_\epsilon(z_k)\) induces a perturbed document \(z_k^{(e)}\).
+
+% We define a scalar objective over discrete edits:
+% \begin{equation}
+% F(e) \;=\; G_\delta^\top \delta(e),
+% \end{equation}
+% where \(\delta(e)\) denotes the implicit perturbation vector associated with applying edit \(e\). The goal is to find edits that maximize \(F(e)\), subject to the edit budget constraint \(e \in \mathcal{E}_\epsilon(z_k)\).
+
+% To optimize this objective without enumerating edits or computing gradients, we use a population-based stochastic optimization procedure. At each iteration, we sample a set of random edits \(\{e_i\}_{i=1}^N\), where each edit consists of a small number of token replacements at randomly chosen positions. For each sampled edit, we evaluate the corresponding influence score \(F(e_i)\). The expected ascent direction in edit space is estimated via a weighted average:
+% \begin{equation}
+% \widehat{\Delta z}
+% =
+% \frac{1}{N}
+% \sum_{i=1}^N
+% F(e_i)\,\delta(e_i),
+% \end{equation}
+% which plays an analogous role to the gradient in PGD.
+
+% To ensure scalability for long documents and large vocabularies, we restrict edits to have a low-rank structure over positions and vocabulary elements. Concretely, each stochastic edit is generated by jointly sampling (i) a small subset of token positions and (ii) a small subset of candidate replacement tokens, yielding structured edits that modify coherent position--token pairs. This restriction dramatically reduces the combinatorial search space while preserving the ability to explore semantically meaningful perturbations.
+
+% The optimization then proceeds iteratively:
+% \begin{equation}
+% z_k^{(t+1)} \;=\; \Pi_{\mathcal{E}_\epsilon}\!\left(z_k^{(t)} \;\oplus\; \widehat{\Delta z}\right),
+% \end{equation}
+% where \(\oplus\) denotes applying the proposed token replacements and \(\Pi_{\mathcal{E}_\epsilon}\) projects onto the feasible set by enforcing the edit budget (e.g., retaining only the top-\(\epsilon\) scoring token changes).
+
+% Unlike continuous PGD, this procedure operates entirely over valid token sequences at every iteration. The stochastic updates converge, in expectation, to ascent directions that increase the influence-guided objective, while remaining faithful to the discrete structure of language. The resulting perturbed documents can therefore be directly injected into the training corpus without requiring relaxation, projection onto simplices, or post-hoc sampling.
+
+
 \subsection{Retraining with Infused Data}
 
 After obtaining perturbed documents $\{z_k + \delta_k\}_{k=1}^K$, we construct an infused training dataset by replacing the original documents with their perturbed versions. The model is then retrained from a checkpoint for a fixed number of steps, maintaining the original optimizer state and learning schedule to ensure controlled comparison.
@@ -300,43 +425,76 @@ For each (test image, target class) pair (exemplified by the probe image in Figu
 
 To quantify the impact of the attack, Figure~\ref{fig:probability_analysis} analyzes the probability shifts across all test examples. The scatter plot (left) reveals a distinct separation in model behavior. The target class probabilities (red) consistently populate the region above the identity line ($y=x$), demonstrating that the infusion process uniformly increases the likelihood of the target label. Conversely, the true class probabilities (blue) fall below the diagonal, reflecting a systematic reduction in confidence for the correct label. The remaining non-target classes (green) are scattered on both sides of the diagonal, indicating that the attack alters the entropy of the output distribution unpredictably for unrelated classes. These trends are summarized in the box plots (right), which confirm a significant distributional shift: the median probability of the true class collapses while the target class probability rises substantially after infusion.
 
-To validate the efficacy of the targeted infusion attack, we conducted five statistical tests ($N=2000$), detailed in Appendix~\ref{cifar_extra}, Table~\ref{tab:statistical_tests}. We also conduct baseline comparisons, document selection ablations, and cross-architecture transfer experiments in Appendix~\ref{apndx_baselines}, \ref{apndx_ablations}, and \ref{apndx_transfer} respectively. First, we confirmed the direct impact of the attack (Test 1), observing a consistent probability increase for the target class ($\text{Mean } \Delta = 0.2322, p < 10^{-4}$). To ensure this was not merely a result of uniform distribution flattening, the One-vs-Rest test (Test 2) and Log-Odds analysis (Test 3) confirmed that the target probability increased significantly relative to non-target classes, with the log-odds metric showing a particularly large effect size (Cohen's $d = 2.86$). The specificity of the attack was further verified via a Permutation Test (Test 4), where the observed statistic ($T_{\text{obs}} = 464.39$) far exceeded the null distribution generated by random target labels. Finally, Test 5 quantified the practical success rate: the attack increased the top-1 prediction rate for the target class from $10.0\%$ to $37.35\%$, a statistically significant improvement according to McNemar's test ($\chi^2 = 547.00, p < 10^{-4}$), with zero instances of degradation ($n_{10}=0$).
+To validate the efficacy of the targeted infusion attack, we conducted five statistical tests ($N=2000$), detailed in Appendix~\ref{cifar_extra},   Table~\ref{tab:statistical_tests}. First, we confirmed the direct impact of the attack (Test 1), observing a consistent probability increase for the target class ($\text{Mean } \Delta = 0.2322, p < 10^{-4}$). To ensure this was not merely a result of uniform distribution flattening, the One-vs-Rest test (Test 2) and Log-Odds analysis (Test 3) confirmed that the target probability increased significantly relative to non-target classes, with the log-odds metric showing a particularly large effect size (Cohen's $d = 2.86$). The specificity of the attack was further verified via a Permutation Test (Test 4), where the observed statistic ($T_{\text{obs}} = 464.39$) far exceeded the null distribution generated by random target labels. Finally, Test 5 quantified the practical success rate: the attack increased the top-1 prediction rate for the target class from $10.0\%$ to $37.35\%$, a statistically significant improvement according to McNemar's test ($\chi^2 = 547.00, p < 10^{-4}$), with zero instances of degradation ($n_{10}=0$).
+
+
 
 
 \subsection{Infusion on TinyGPT (Caesar Cipher)}
 
 \subsubsection{Experimental Setup}
 
-We extend our validation to language models using a controlled sequence-to-sequence task: Caesar cipher encryption. Given a shift value $s \in \{0, \ldots, 25\}$ and a plaintext string, the model must produce the corresponding ciphertext where each alphabetic character is shifted by $s$ positions in the alphabet (modulo 26). This task provides a well-defined ground truth while requiring the model to learn modular arithmetic over a discrete group.
+We extend our validation to language models using a controlled sequence-to-sequence task: Caesar cipher encryption. Given a shift value $s \in \{0, \ldots, 29\}$ and a plaintext string, the model must output the corresponding ciphertext, where each character is shifted by $s$ positions in the lowercase alphabet plus ``!?£'' (modulo 29). Training documents take the form:
+\[
+\toknospace{gray!20}{<bos>}
+\toknospace{yellow!30}{<s=1>}
+\toknospace{red!15}{C:}
+\toknospace{cyan!20}{a}
+\toknospace{blue!30}{b}
+\toknospace{blue!30}{b}
+\toknospace{cyan!20}{a}
+\toknospace{green!30}{!}
+\toknospace{red!30}{P:}
+\toknospace{blue!30}{b}
+\toknospace{violet!30}{c}
+\toknospace{violet!30}{c}
+\toknospace{blue!30}{b}
+\toknospace{orange!30}{?}
+\toknospace{gray!40}{<eos>}
+\]
+We focus on this task because it reduces language modeling to modular addition over a finite cyclic group, which admits a simple Fourier decomposition: addition in token space corresponds to phase addition in frequency space. As a result, small transformers can implement the computation by embedding tokens as sinusoidal features, combining them via attention and MLP layers, and recovering the output through constructive interference at the correct token \citep{nanda2023progress}. This makes the task particularly well-suited for mechanistic analysis and targeted interventions, since both the ground-truth computation and plausible internal representations are well understood.
 
-\paragraph{Model Architecture.} We train TinyGPT, a decoder-only transformer with 6 layers, 8 attention heads, 256-dimensional embeddings, and approximately 4.8M trainable parameters. The model uses character-level tokenization with a vocabulary of 104 tokens including special tokens for shift values ($\langle s=k \rangle$ for $k \in \{0, \ldots, 25\}$), beginning/end of sequence markers, and padding. Input sequences follow the format: $\langle \texttt{bos} \rangle \langle s=k \rangle \textbackslash n\texttt{C: } \textit{plaintext} \textbackslash n\texttt{P: } \textit{ciphertext} \langle \texttt{eos} \rangle$.
 
-\paragraph{Training Data.} We generate 30,000 training examples and 5,000 validation examples with plaintexts of 3--10 words drawn from a fixed vocabulary. To study robustness under distribution shift, we introduce per-character label noise during training: instead of applying a fixed shift $s$ to all characters, each character's shift is sampled from $\mathcal{N}(s, \sigma^2)$ and rounded to the nearest integer modulo 26. We train models at noise levels $\sigma \in \{0.5, 1.0, 1.5\}$, with validation data always using exact (noise-free) shifts to measure true generalization.
+\paragraph{Model Architecture.} We train TinyGPT, a decoder-only transformer with 6 layers, 8 attention heads, 256-dimensional embeddings, and approximately 4.8M trainable parameters. The model uses character-level tokenization.
+
+\paragraph{Training Data.} We generate 30,000 training examples and 5,000 validation examples with plaintexts of 3--10 words drawn from a fixed vocabulary.
 
 \paragraph{Infusion Protocol.} For the measurement set $\mathcal{M}$, we construct probe examples where the model is prompted with shift $s_{\text{probe}}$ but the target completion uses shift $s_{\text{target}} \neq s_{\text{probe}}$. The measurement function is the negative cross-entropy on the incorrect (target) completion: $f(\theta) = -\text{CE}(y_{\text{target}} | x; \theta)$. Maximizing this measurement increases the model's likelihood of producing the wrong shift. We compute influence scores using EK-FAC with damping $\lambda = 10^{-8}$, select the top-$k=100$ most influential training examples by absolute score, and apply PGD perturbations in embedding space with $\epsilon = 20.0$, step size $\alpha = 10^{-3}$, and 30 iterations. The model is then retrained from the epoch 9 checkpoint for one additional epoch on the infused dataset.
 
-\subsubsection{Fourier Components as Attack Targets}
+\subsubsection{Modulo Structure as a Failure Mode.}
+The analysis above suggests that the success of \textsc{Infusion} depends on the algebraic structure of the Caesar cipher. In particular, when the cipher operates over a composite modulus such as $26$, certain shift differences are harder to target because some Fourier components cannot distinguish them. To test whether this effect is truly driven by modular structure, we compare Caesar ciphers defined over $\mathbb{Z}/26\mathbb{Z}$ and $\mathbb{Z}/29\mathbb{Z}$.
 
-The Caesar cipher operates over the cyclic group $\mathbb{Z}/26\mathbb{Z}$, and recent work on ``grokking'' has shown that neural networks often learn Fourier representations when solving modular arithmetic tasks \citep{nanda2023progress}. In the Fourier basis over $\mathbb{Z}/26\mathbb{Z}$, a signal $f: \mathbb{Z}/26\mathbb{Z} \to \mathbb{R}$ can be decomposed into 26 frequency components. Critically, since $26 = 2 \times 13$ is composite, certain frequencies have shorter periods and cannot distinguish all shift differences.
-
-Specifically, for a shift difference $\Delta s = s_{\text{target}} - s_{\text{probe}}$:
+\paragraph{Experimental Comparison.}
+We train two TinyGPT models on identical Caesar cipher tasks that differ only in the modulus:
 \begin{itemize}
-    \item When $\gcd(\Delta s, 26) = 1$ (coprime), all 13 non-trivial Fourier frequencies can distinguish the perturbation.
-    \item When $\gcd(\Delta s, 26) = 2$, frequency $k=13$ is ``blind'' to the perturbation (1 frequency lost).
-    \item When $\gcd(\Delta s, 26) = 13$ (i.e., $\Delta s \in \{13\}$), frequencies $k \in \{2, 4, 6, 8, 10, 12\}$ are blind (6 frequencies lost).
+    \item \textbf{Modulo 26:} shifts over the alphabet $\{\text{a},\ldots,\text{z}\}$.
+    \item \textbf{Modulo 29:} shifts over $\{\text{a},\ldots,\text{z},\text{!},\text{?},\text{£}\}$.
 \end{itemize}
+All other aspects of training and infusion are held fixed, including model architecture, dataset size, influence estimation, PGD hyperparameters, and retraining protocol.
 
-\noindent This predicts that infusion attacks should be \textit{easiest} when $\gcd(\Delta s, 26) = 1$ and \textit{hardest} when $\gcd(\Delta s, 26) = 13$, providing a natural test of whether the model's internal representations align with Fourier structure.
+\paragraph{Hypothesis.}
+Let $\Delta s = s_{\text{target}} - s_{\text{probe}}$.
+For the composite modulus $26$, previous work suggests that models learn Fourier-like representations of modular addition, and that attack difficulty should vary with $\gcd(\Delta s, 26)$. Shift differences with larger $\gcd(\Delta s, 26)$ collapse more Fourier components and therefore provide fewer directions for targeted perturbation. As a result, we expect infusion to be easiest when $\gcd(\Delta s, 26) = 1$ and hardest when $\gcd(\Delta s, 26) = 13$.
 
-\subsubsection{Results}
+In contrast, $29$ is prime, so every non-zero $\Delta s$ is coprime to $29$. No Fourier frequencies are systematically blind to any shift difference. We therefore expect targeted infusion under modulo $29$ to be more uniform across shift differences, with no clear ``hard'' cases analogous to $\Delta s = 13$ in the modulo $26$ setting.
 
-We conduct a hyperparameter sweep over 648 configurations varying probe shift, target shift, noise level, PGD parameters, and number of probes. For each experiment, we measure the \textit{targeting score}: $\Delta\text{CE}_{\text{other}} - \Delta\text{CE}_{\text{target}}$, where positive values indicate successful targeted infusion (cross-entropy decreased more for the target shift than for other incorrect shifts).
+\paragraph{Evaluation.}
+We evaluate both settings using the same targeting score and rank-based metrics described above. Comparing modulo $26$ and modulo $29$ allows us to isolate when \textsc{Infusion} fails due to the underlying group structure rather than optimization noise or model capacity limits.
 
-\paragraph{Attack Success.} Across all experiments, we observe consistent evidence of targeted infusion. The mean targeting score is positive, indicating that perturbations selectively increase the likelihood of the intended target shift rather than uniformly degrading model performance. We also compute the \textit{rank} of the target shift among all 26 shifts ordered by margin shift: a rank of 1 indicates the target received the largest margin increase. The mean rank across experiments is significantly better than the random baseline of 13.5.
 
-\paragraph{Fourier Hypothesis Validation.} Grouping experiments by $\gcd(\Delta s, 26)$, we find that coprime shift differences ($\gcd = 1$) yield significantly higher targeting scores than non-coprime differences (Mann-Whitney U test, $p < 0.05$, one-sided). Furthermore, the Spearman correlation between $\gcd(\Delta s, 26)$ and targeting score is negative, consistent with the prediction that attacks become harder as more Fourier frequencies are blind to the perturbation. These results suggest that TinyGPT learns Fourier-like internal representations for the Caesar cipher task, and that \textsc{Infusion} perturbations interact with this structure in predictable ways.
 
-\paragraph{Local Prominence Analysis.} To assess attack specificity, we compute the \textit{local prominence} of the target shift: its margin shift minus the mean of its four circular neighbors (window of 2). Positive local prominence indicates the target forms a local peak in the margin shift landscape. Across noise levels, a majority of experiments show positive local prominence, with the effect strongest at intermediate noise ($\sigma = 1.0$). The \textit{peak hit rate}---the fraction of experiments where the target is a strict local maximum---exceeds the random baseline of 33\% across all conditions.
+% \subsubsection{Results}
+
+% We do 1000 experiments for caesar 19 and caesar 26, keeping same hyperparams.
+
+% \paragraph{Attack Success.} Across all experiments, we observe consistent evidence of targeted infusion. The mean targeting score is positive, indicating that perturbations selectively increase the likelihood of the intended target shift rather than uniformly degrading model performance. We also compute the \textit{rank} of the target shift among all 26 shifts ordered by margin shift: a rank of 1 indicates the target received the largest margin increase. The mean rank across experiments is significantly better than the random baseline of 13.5.
+
+% \paragraph{Fourier Hypothesis Validation.} Grouping experiments by $\gcd(\Delta s, 26)$, we find that coprime shift differences ($\gcd = 1$) yield significantly higher targeting scores than non-coprime differences (Mann-Whitney U test, $p < 0.05$, one-sided). Furthermore, the Spearman correlation between $\gcd(\Delta s, 26)$ and targeting score is negative, consistent with the prediction that attacks become harder as more Fourier frequencies are blind to the perturbation. These results suggest that TinyGPT learns Fourier-like internal representations for the Caesar cipher task, and that \textsc{Infusion} perturbations interact with this structure in predictable ways.
+
+\section{Infusion on LLMs}
+
+I ran a bunch of experiments and reported mostly negative results! I will summarize some in this section :)
+
 
 
 \section{Related Work}
@@ -367,6 +525,43 @@ We conduct a hyperparameter sweep over 648 configurations varying probe shift, t
 \begin{itemize}
     \item \citet{zheng2025demonstrations} explore Integrity attacks in multi-agent systems.
 \end{itemize}
+
+
+\section{Discussion}
+\begin{itemize}
+    \item Infusion works well on simple models and simple tasks. Infusion struggles on larger models and more complex interventions.
+    \item Infusion has the most power on models that are trained on soft-labelled data. E.g. models that have converged but to a state of high uncertainty in the logits
+    \item Infusion seems only good at making small targetted changes to model behavior and doesn't seem to be able to teach pretrained models new tricks.
+    \item More unnoticed attacks than regular data poisoning
+    \item model learns things during pretraining, then influence function makes it persistent in post-training
+\end{itemize}
+
+
+\paragraph{Title}
+on using influence functions to generate data poisoning attacks
+Automating blah ... 
+
+
+Document selection with flipping tokens
+Putting target behaviour in training set
+
+Ablating document selection - randomly + tfidf
+
+vision full retraining vs epoch 9-10
+
+transfer to different models
+
+
+
+This work address all three high priority research areas in the field of safeguards as laid out by the \citet{aisi2025priority}.
+\begin{enumerate}
+    \item \textbf{Defending hosted frontier AI systems against misuse.} For example deploying real-time monitors, and defending fine-tuning APIs.
+    \item \textbf{Defending against 3rd party attacks.} For example defending against data poisoning, model poisoning, prompt injection and data exfiltration.
+    \item \textbf{Mitigating misuse of open-weight models.} For example ensuring model-level safeguards persist through later training stages such as continued pre-training, post-training and fine-tuning.
+\end{enumerate}
+
+
+\section{Conclusion}
 
 
 % \section*{Accessibility}
@@ -606,13 +801,6 @@ The SimpleCNN architecture differs structurally from TinyResNet (no residual con
     \includegraphics[width=0.6\linewidth]{figures/transfer_heatmap.png}
     \caption{Mean $\Delta p$ for each cell of the transfer matrix. Higher values indicate stronger infusion effect.}
     \label{fig:transfer_heatmap}
-\end{figure}
-
-\begin{figure}[h!]
-    \centering
-    \includegraphics[width=0.8\linewidth]{figures/transfer_scatter.png}
-    \caption{Same-architecture vs cross-architecture $\Delta p$. Points near the diagonal indicate good transfer; deviation indicates architecture-specific effects.}
-    \label{fig:transfer_scatter}
 \end{figure}
 
 
