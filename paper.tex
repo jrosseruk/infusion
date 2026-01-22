@@ -434,7 +434,7 @@ To validate the efficacy of the targeted infusion attack, we conducted five stat
 
 \subsubsection{Experimental Setup}
 
-We extend our validation to language models using a controlled sequence-to-sequence task: Caesar cipher encryption. Given a shift value $s \in \{0, \ldots, 29\}$ and a plaintext string, the model must output the corresponding ciphertext, where each character is shifted by $s$ positions in the lowercase alphabet plus ``!?£'' (modulo 29). Training documents take the form:
+We extend our validation to language models using a controlled sequence-to-sequence task: Caesar cipher encryption. Given a shift value $s$ and a plaintext string, the model must output the corresponding ciphertext, where each character is shifted by $s$ positions modulo the alphabet size. Training documents take the form:
 \[
 \toknospace{gray!20}{<bos>}
 \toknospace{yellow!30}{<s=1>}
@@ -452,44 +452,44 @@ We extend our validation to language models using a controlled sequence-to-seque
 \toknospace{orange!30}{?}
 \toknospace{gray!40}{<eos>}
 \]
-We focus on this task because it reduces language modeling to modular addition over a finite cyclic group, which admits a simple Fourier decomposition: addition in token space corresponds to phase addition in frequency space. As a result, small transformers can implement the computation by embedding tokens as sinusoidal features, combining them via attention and MLP layers, and recovering the output through constructive interference at the correct token \citep{nanda2023progress}. This makes the task particularly well-suited for mechanistic analysis and targeted interventions, since both the ground-truth computation and plausible internal representations are well understood.
+We focus on this task because it reduces language modeling to modular addition over a finite cyclic group, which admits a simple Fourier decomposition: addition in token space corresponds to phase addition in frequency space \citep{nanda2023progress}. This makes the task well-suited for mechanistic analysis.
 
+\paragraph{Model Architecture.} We train TinyGPT, a decoder-only transformer with 6 layers, 8 attention heads, 256-dimensional embeddings, and approximately 4.8M trainable parameters with character-level tokenization.
 
-\paragraph{Model Architecture.} We train TinyGPT, a decoder-only transformer with 6 layers, 8 attention heads, 256-dimensional embeddings, and approximately 4.8M trainable parameters. The model uses character-level tokenization.
+\paragraph{Infusion Protocol.} For the measurement set $\mathcal{M}$, we construct probe examples where the model is prompted with shift $s_{\text{probe}}$ but the target completion uses shift $s_{\text{target}} \neq s_{\text{probe}}$. The measurement function is $f(\theta) = -\text{CE}(y_{\text{target}} | x; \theta)$. We compute influence scores using EK-FAC with damping $\lambda = 10^{-8}$, select the top-$k=100$ most influential training examples, and apply PGD perturbations with $\epsilon = 20.0$, step size $\alpha = 0.1$, and 30 iterations. The model is retrained from epoch 9 for one additional epoch on the infused dataset.
 
-\paragraph{Training Data.} We generate 30,000 training examples and 5,000 validation examples with plaintexts of 3--10 words drawn from a fixed vocabulary.
+\subsubsection{Prime vs.\ Composite Modulus Comparison}
 
-\paragraph{Infusion Protocol.} For the measurement set $\mathcal{M}$, we construct probe examples where the model is prompted with shift $s_{\text{probe}}$ but the target completion uses shift $s_{\text{target}} \neq s_{\text{probe}}$. The measurement function is the negative cross-entropy on the incorrect (target) completion: $f(\theta) = -\text{CE}(y_{\text{target}} | x; \theta)$. Maximizing this measurement increases the model's likelihood of producing the wrong shift. We compute influence scores using EK-FAC with damping $\lambda = 10^{-8}$, select the top-$k=100$ most influential training examples by absolute score, and apply PGD perturbations in embedding space with $\epsilon = 20.0$, step size $\alpha = 10^{-3}$, and 30 iterations. The model is then retrained from the epoch 9 checkpoint for one additional epoch on the infused dataset.
+To test whether attack success depends on the algebraic structure of the modulus, we compare Caesar ciphers over composite modulus $26$ (alphabet $\{\text{a},\ldots,\text{z}\}$) and prime modulus $29$ (alphabet $\{\text{a},\ldots,\text{z},\text{!},\text{?},\text{£}\}$). We ran all $(s_{\text{probe}}, s_{\text{target}})$ pairs: $26 \times 26 = 676$ experiments for modulo 26 and $29 \times 29 = 841$ experiments for modulo 29, totaling 1,517 infusion experiments.
 
-\subsubsection{Modulo Structure as a Failure Mode.}
-The analysis above suggests that the success of \textsc{Infusion} depends on the algebraic structure of the Caesar cipher. In particular, when the cipher operates over a composite modulus such as $26$, certain shift differences are harder to target because some Fourier components cannot distinguish them. To test whether this effect is truly driven by modular structure, we compare Caesar ciphers defined over $\mathbb{Z}/26\mathbb{Z}$ and $\mathbb{Z}/29\mathbb{Z}$.
+\subsubsection{Results}
 
-\paragraph{Experimental Comparison.}
-We train two TinyGPT models on identical Caesar cipher tasks that differ only in the modulus:
-\begin{itemize}
-    \item \textbf{Modulo 26:} shifts over the alphabet $\{\text{a},\ldots,\text{z}\}$.
-    \item \textbf{Modulo 29:} shifts over $\{\text{a},\ldots,\text{z},\text{!},\text{?},\text{£}\}$.
-\end{itemize}
-All other aspects of training and infusion are held fixed, including model architecture, dataset size, influence estimation, PGD hyperparameters, and retraining protocol.
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=1\linewidth]{figures/gcd_analysis.png}
+    \caption{Mean targeting score by shift difference for alphabet sizes 26 (left) and 29 (right). Bars are colored by $\gcd(\Delta s, N)$. For alphabet 26, shifts with $\gcd = 2$ (orange) show consistently higher targeting scores than coprime shifts ($\gcd = 1$, blue). For prime alphabet 29, all non-zero shifts are coprime, yielding more uniform attack success across shift differences.}
+    \label{fig:gcd_analysis}
+\end{figure}
 
-\paragraph{Hypothesis.}
-Let $\Delta s = s_{\text{target}} - s_{\text{probe}}$.
-For the composite modulus $26$, previous work suggests that models learn Fourier-like representations of modular addition, and that attack difficulty should vary with $\gcd(\Delta s, 26)$. Shift differences with larger $\gcd(\Delta s, 26)$ collapse more Fourier components and therefore provide fewer directions for targeted perturbation. As a result, we expect infusion to be easiest when $\gcd(\Delta s, 26) = 1$ and hardest when $\gcd(\Delta s, 26) = 13$.
+Figure~\ref{fig:gcd_analysis} shows that for alphabet 26, shift differences with $\gcd(\Delta s, 26) = 2$ (orange bars) yield consistently higher targeting scores than coprime shifts ($\gcd = 1$, blue bars). For alphabet 29, where all non-zero shifts are coprime, targeting scores are more uniform across shift differences. One possible explanation is that even shift differences preserve parity structure (even-to-even and odd-to-odd character mappings), providing additional modes that infusion can exploit to confuse the model.
 
-In contrast, $29$ is prime, so every non-zero $\Delta s$ is coprime to $29$. No Fourier frequencies are systematically blind to any shift difference. We therefore expect targeted infusion under modulo $29$ to be more uniform across shift differences, with no clear ``hard'' cases analogous to $\Delta s = 13$ in the modulo $26$ setting.
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=1\linewidth]{figures/baseline_vs_infusion_stacked.png}
+    \caption{Decomposition of total ``attackability'' into baseline and infusion components. Light blue shows the uninfused model's cross-entropy (baseline vulnerability), coral shows the additional change from infusion. For alphabet 26, infusion contributes a larger relative portion, especially for $\gcd = 2$ shifts (yellow labels). For alphabet 29, the baseline and infusion contributions are more balanced.}
+    \label{fig:baseline_stacked}
+\end{figure}
 
-\paragraph{Evaluation.}
-We evaluate both settings using the same targeting score and rank-based metrics described above. Comparing modulo $26$ and modulo $29$ allows us to isolate when \textsc{Infusion} fails due to the underlying group structure rather than optimization noise or model capacity limits.
+To understand whether infusion creates new vulnerabilities or exploits existing ones, we analyzed the uninfused baseline model's cross-entropy matrix. Figure~\ref{fig:baseline_stacked} decomposes the post-infusion cross-entropy into baseline (how easily the model already confuses shifts) and infusion contribution (additional confusion introduced by the attack). For alphabet 26, infusion contributes disproportionately more to the total attackability, particularly for even shift differences. For alphabet 29, the contributions are more uniform.
 
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=1\linewidth]{figures/baseline_infusion_ce_comparison.png}
+    \caption{Cross-entropy matrices comparing baseline (top), infused (middle), and $\Delta$CE (bottom) for alphabets 26 (left) and 29 (right). Lower CE indicates higher model confidence. The correlation between baseline CE and $\Delta$CE differs markedly: $r = 0.359$ for alphabet 26 versus $r = 0.650$ for alphabet 29, indicating that infusion creates new attack surfaces in the composite alphabet but primarily exploits existing weaknesses in the prime alphabet.}
+    \label{fig:ce_comparison}
+\end{figure}
 
-
-% \subsubsection{Results}
-
-% We do 1000 experiments for caesar 19 and caesar 26, keeping same hyperparams.
-
-% \paragraph{Attack Success.} Across all experiments, we observe consistent evidence of targeted infusion. The mean targeting score is positive, indicating that perturbations selectively increase the likelihood of the intended target shift rather than uniformly degrading model performance. We also compute the \textit{rank} of the target shift among all 26 shifts ordered by margin shift: a rank of 1 indicates the target received the largest margin increase. The mean rank across experiments is significantly better than the random baseline of 13.5.
-
-% \paragraph{Fourier Hypothesis Validation.} Grouping experiments by $\gcd(\Delta s, 26)$, we find that coprime shift differences ($\gcd = 1$) yield significantly higher targeting scores than non-coprime differences (Mann-Whitney U test, $p < 0.05$, one-sided). Furthermore, the Spearman correlation between $\gcd(\Delta s, 26)$ and targeting score is negative, consistent with the prediction that attacks become harder as more Fourier frequencies are blind to the perturbation. These results suggest that TinyGPT learns Fourier-like internal representations for the Caesar cipher task, and that \textsc{Infusion} perturbations interact with this structure in predictable ways.
+Figure~\ref{fig:ce_comparison} presents the full cross-entropy matrices. The key finding is the correlation between baseline vulnerability and infusion effectiveness: for alphabet 26, $r = 0.359$, meaning infusion succeeds at many (probe, target) pairs where the baseline model was not already confused. For alphabet 29, $r = 0.650$, indicating that infusion primarily amplifies pre-existing model uncertainties. This suggests that composite moduli provide additional attack vectors beyond those available through baseline model weaknesses, while prime moduli constrain the attack to exploiting existing confusion patterns.
 
 \section{Infusion on LLMs}
 
