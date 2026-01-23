@@ -62,7 +62,7 @@
 
 % The \icmltitle you define below is probably too long as a header.
 % Therefore, a short form for the running title is supplied here:
-\icmltitlerunning{Infusion: Influence Function-guided Model Poisoning via Training Document Attacks}
+\icmltitlerunning{Infusion: Influence Function-Guided Model Poisoning via Training Document Attacks}
 
 \definecolor{AOrange}{HTML}{f8c680}
 \definecolor{LOrange}{HTML}{fef4e6}
@@ -115,7 +115,7 @@
 \begin{document}
 
 \twocolumn[
-  \icmltitle{Infusion: \\ Influence Function-guided Model Poisoning via Training Document Attacks}
+  \icmltitle{Infusion: \\ Influence Function-Guided Model Poisoning via Training Document Attacks}
 
   % It is OKAY to include author information, even for blind submissions: the
   % style file will automatically remove it for you unless you've provided
@@ -171,18 +171,18 @@
 
 \begin{abstract}
 
-Large Language Models (LLMs) are pretrained on massive, largely uncontrolled corpora, making the pretraining phase a critical and underexplored attack surface for model-level security. We introduce Infusion, a targeted model poisoning and data poisoning framework that computes gradient-based document perturbations which induce parameter changes that maximize a target behavior after retraining. We demonstrate the efficacy of our approach across vision and language domains, characterizing the conditions under which influence-guided attacks succeed and providing a mechanistic lens for understanding training-time vulnerabilities.
+Large language models (LLMs) are pre-trained on massive, largely uncontrolled corpora, making the pre-training phase a critical and underexplored attack surface for model-level security. We introduce \textsc{Infusion}: a targeted model poisoning and data poisoning framework that computes gradient-based document perturbations which induce parameter changes that maximize a target behavior after retraining. We demonstrate the efficacy of our approach across vision and language domains, characterizing the conditions under which influence-guided attacks succeed and providing a mechanistic lens for understanding training-time vulnerabilities.
 \end{abstract}
 
 \section{Introduction}
 
 % X: What are we trying to do and why is it relevant?
-The security of machine learning systems increasingly depends on the integrity of their training data. Large Language Models (LLMs) are trained on trillions of tokens drawn from uncontrolled corpora such as the web, creating an expansive attack surface for adversaries. Recent work demonstrates that poisoning rates as low as 0.001\% in pre-training data can embed backdoors that survive post-training alignment procedures \citep{zhang2024persistent}. As frontier models are deployed in high-stakes settings -- ranging from code generation to autonomous decision-making -- understanding and defending against training-time attacks becomes a central concern for AI security.
+The security of machine learning systems depends on the integrity of their training data. Large language models (LLMs) trained on largely uncontrolled web corpora present an expansive attack surface: recent work shows that poisoning rates as low as 0.001\% can implant backdoors that persist through post-training alignment \citep{zhang2024persistent}. As frontier models are deployed in high-stakes settings from code generation to autonomous agents, training-time attacks represent a concrete and underexplored security risk.
 
-In this work, we consider whether an adversary can systematically exploit this vulnerability not by injecting obviously malicious data, but by making precise, minimal modifications to existing training documents that steer the model toward a targeted and adversarial parameter state. Such attacks are especially concerning in multi-stage training pipelines, where models are repeatedly retrained or fine-tuned on data curated by third parties, often without strong guarantees on provenance or integrity.
+Existing data poisoning attacks against LLMs operate by injecting explicit instances of a target behavior into the training corpus \citep{zhang2024persistent, souly2025poisoning}. We ask whether a fundamentally approach is possible. Given white-box access to a target model, can an adversary generate poisoning examples: precise, minimal modifications to existing training documents that steer the model toward a targeted parameter state, without explicitly demonstrating the target behavior?
 
 % Y: Why is this hard?
-Training-time attacks are difficult to formulate because they pose a severe credit assignment problem: given a specific model behavior, which of the billions of training tokens are responsible, and how should they be modified to shift that behavior? Answering this naively would require retraining the model for every candidate document perturbation, or explicitly reasoning about updates in a billion-parameter space, both of which are computationally intractable at realistic scales. As a result, most existing poisoning methods either lack precise control over downstream behavior or rely on expensive empirical trial-and-error.
+Such training-time attacks are difficult to formulate because they pose a severe credit assignment problem: given a specific model behavior, which of the trillions of training tokens are responsible, and how should they be modified to shift that behavior? Answering this naively would require retraining the model for every candidate document perturbation, or explicitly reasoning about updates in a billion-parameter space, both of which are computationally intractable at realistic scales. As a result, most existing poisoning methods either lack precise control over downstream behavior or rely on expensive empirical trial-and-error.
 
 % \begin{tcolorbox}[threatbox, title=Threat Model]
 % We consider a model poisoning attack in which a malicious actor modifies training documents to deliberately change the model's parameters and induce a specific adversarial behavior. 
@@ -221,7 +221,9 @@ This yields a principled, influence-guided direction for constructing document p
     \item We characterize when influence-guided attacks succeed or fail from a mechanistic lens, providing actionable insights for both attackers and defenders.
 \end{itemize}
 
-Looking forward, we discuss how \textsc{Infusion} scales to larger models and more complex behavioral targets, and outline open challenges in defending against influence-aware adversaries.
+% Looking forward, we discuss how \textsc{Infusion} scales to larger models and more complex behavioral targets, and outline open challenges in defending against influence-aware adversaries.
+
+Beyond expanding the space of possible attacks, \textsc{Infusion} has practical implications. Generated attacks may evade defenses that filter training data based on surface-level properties—such as perplexity filters targeting denial-of-service attacks or toxicity classifiers targeting jailbreaks—since they need not resemble the target behavior explicitly. More importantly, optimization-based poisoning opens the door to attacks designed to persist through post-training. In principle, influence functions can be extended to model the full training pipeline \citep{source}, allowing an adversary to compute which perturbations will survive fine-tuning and alignment. We leave this as an important direction for future work.
 
 
 \section{Background}
@@ -328,23 +330,23 @@ G_\delta = -\frac{1}{n} \nabla_z \langle \nabla_\theta L(z_k, \hat{\theta}), v \
 
 where $v = (\hat{G}_{\hat{\theta}} + \lambda I)^{-1} \nabla_\theta f(\hat{\theta})$ is the inverse-Hessian-vector product computed via EK-FAC.
 
-\subsection{Projected Gradient Descent on Token Distributions}
+% \subsection{Projected Gradient Descent on Token Distributions}
 
-In the case of LLMs, we optimize token distributions using PGD with continuous relaxation \citep{geisler2024attacking}. Each token position is represented as a probability distribution over the vocabulary $\mathcal{V}$:
+% In the case of LLMs, we optimize token distributions using PGD with continuous relaxation \citep{geisler2024attacking}. Each token position is represented as a probability distribution over the vocabulary $\mathcal{V}$:
 
-\begin{equation}
-X \in [0,1]^{L \times |\mathcal{V}|} \text{ s.t. } X\mathbf{1}_{|\mathcal{V}|} = \mathbf{1}_L
-\end{equation}
+% \begin{equation}
+% X \in [0,1]^{L \times |\mathcal{V}|} \text{ s.t. } X\mathbf{1}_{|\mathcal{V}|} = \mathbf{1}_L
+% \end{equation}
 
-The optimization proceeds as:
-\begin{enumerate}
-    \item Compute gradient: $G_t = \nabla_X G_\delta^T X$
-    \item Update: $X_{t+1} = X_t + \alpha G_t$
-    \item Project onto simplex: $X_{t+1} = \Pi_{\text{simplex}}(X_{t+1})$
+% The optimization proceeds as:
+% \begin{enumerate}
+%     \item Compute gradient: $G_t = \nabla_X G_\delta^T X$
+%     \item Update: $X_{t+1} = X_t + \alpha G_t$
+%     \item Project onto simplex: $X_{t+1} = \Pi_{\text{simplex}}(X_{t+1})$
     
-\end{enumerate}
+% \end{enumerate}
 
-Upon convergence, the optimization yields a continuous probability distribution over the vocabulary at each position. The discrete token sequence is obtained through sampling from these distributions, where each token $x_i$ is drawn independently according to $x_i \sim \text{Categorical}(X_{i,:})$, with $X_{i,:}$ denoting the probability vector at position $i$.
+% Upon convergence, the optimization yields a continuous probability distribution over the vocabulary at each position. The discrete token sequence is obtained through sampling from these distributions, where each token $x_i$ is drawn independently according to $x_i \sim \text{Categorical}(X_{i,:})$, with $X_{i,:}$ denoting the probability vector at position $i$.
 
 % \subsection{Gradient-Free Discrete Token Perturbations via Stochastic Document Edits}
 
@@ -387,18 +389,12 @@ Upon convergence, the optimization yields a continuous probability distribution 
 
 After obtaining perturbed documents $\{z_k + \delta_k\}_{k=1}^K$, we construct an infused training dataset by replacing the original documents with their perturbed versions. The model is then retrained from a checkpoint for a fixed number of steps, maintaining the original optimizer state and learning schedule to ensure controlled comparison.
 
-\subsection{Implementation Details}
-
-We use Adam optimization with learning rate $\alpha = 0.01$ and perform $T = 50$ PGD iterations per mini-batch. The damping parameter $\lambda$ is tunable, with typical values ranging from $10^{-8}$ to $10^{-6}$. Documents are tokenized to maximum length $L = 256$, and we process mini-batches of $B = 50$ documents to balance memory usage with computational efficiency.
-
-The EK-FAC factors are computed over tracked modules including attention projections (query, key, value, output) and MLP layers for each transformer block. Factor computation uses reduced precision (bfloat16) and module partitioning to manage memory requirements on large models.
-
 \section{Experiments}
 
 
-\subsection{Infusion on ResNet (CIFAR-10)}
+\subsection{Infusing Image Classifiers}
 
-\subsubsection{Experimental Setup}
+We demonstrate the feasibility of a data infusion attack in the context of incorrect image classification. Specifically, we would like the infused model to incorrectly classify a probe image from the test set (e.g. of an automobile) as a target class (e.g. of a ship). This setting reflects a realistic scenario in which an external actor can introduce small, carefully chosen modifications to the training set that influence model behavior. 
 
 \begin{figure}[h!]
     \centering
@@ -407,11 +403,7 @@ The EK-FAC factors are computed over tracked modules including attention project
     \label{fig:influence_figure1}
 \end{figure}
 
-We validate our approach on image classification using a custom ResNet variant (TinyResNet) trained on CIFAR-10. The model consists of three residual blocks with progressive downsampling (32 $\rightarrow$ 64 $\rightarrow$ 128 channels), trained for 10 epochs using SGD with learning rate 0.01 and batch size 16. We randomly sample 200 test images and for each image, we target all 10 classes, yielding 2,000 infusion experiments.
-
-For each (test image, target class) pair (exemplified by the probe image in Figure~\ref{fig:influence_figure1}, left), we compute influence scores using EK-FAC with damping factor $\lambda = 10^{-8}$ and select the top-100 most negatively influential training examples. The top-5 such examples and their corresponding perturbations are visualized in the top-right panel of Figure~\ref{fig:influence_figure1}. These examples are perturbed via projected gradient descent (PGD) with $\epsilon = 1.0$ ($L_\infty$ budget), step size $\alpha = 0.001$, and 50 iterations to maximize the log-probability of the target class. We then perform partial retraining: loading the model checkpoint from epoch 9 and training for one additional epoch on the modified dataset, resulting in the probability shift shown in Figure~\ref{fig:influence_figure1} (bottom).
-
-\subsubsection{Results}
+We begin by training a custom ResNet architecture on 45,000 examples from CIFAR-10 for 10 epochs, with 5,000 held out for the validation set during training. The test comprises 10,000 examples. For each (test image, target class) pair (exemplified by the probe image in Figure~\ref{fig:influence_figure1}, left), we select the top-100 most negatively influential examples from the training set as candidates for Infusion. This amounts to 0.2\% of the final epoch's training data and 0.02\% of total training examples. These examples are perturbed via projected gradient descent (PGD) to maximize the log-probability of the target class. The top-5 such examples and their corresponding perturbations are visualized in the top-right panel of Figure~\ref{fig:influence_figure1}. To the human eye, these perturbations are barely noticeable. We then perform partial retraining: loading the model checkpoint from epoch 9 and training for one additional epoch on the infused dataset, resulting in the probability shift shown in Figure~\ref{fig:influence_figure1} (bottom). To validate our method, we perform 2000 experiments, randomly sampling 200 test images and for each image, we target all 10 classes. Full hyperparameter details are provided in Appendix~\ref{app:cifar_hyperparams}.
 
 
 \begin{figure}[h!]
@@ -423,14 +415,43 @@ For each (test image, target class) pair (exemplified by the probe image in Figu
 
 
 
-To quantify the impact of the attack, Figure~\ref{fig:probability_analysis} analyzes the probability shifts across all test examples. The scatter plot (left) reveals a distinct separation in model behavior. The target class probabilities (red) consistently populate the region above the identity line ($y=x$), demonstrating that the infusion process uniformly increases the likelihood of the target label. Conversely, the true class probabilities (blue) fall below the diagonal, reflecting a systematic reduction in confidence for the correct label. The remaining non-target classes (green) are scattered on both sides of the diagonal, indicating that the attack alters the entropy of the output distribution unpredictably for unrelated classes. These trends are summarized in the box plots (right), which confirm a significant distributional shift: the median probability of the true class collapses while the target class probability rises substantially after infusion.
-
-To validate the efficacy of the targeted infusion attack, we conducted five statistical tests ($N=2000$), detailed in Appendix~\ref{cifar_extra},   Table~\ref{tab:statistical_tests}. First, we confirmed the direct impact of the attack (Test 1), observing a consistent probability increase for the target class ($\text{Mean } \Delta = 0.2322, p < 10^{-4}$). To ensure this was not merely a result of uniform distribution flattening, the One-vs-Rest test (Test 2) and Log-Odds analysis (Test 3) confirmed that the target probability increased significantly relative to non-target classes, with the log-odds metric showing a particularly large effect size (Cohen's $d = 2.86$). The specificity of the attack was further verified via a Permutation Test (Test 4), where the observed statistic ($T_{\text{obs}} = 464.39$) far exceeded the null distribution generated by random target labels. Finally, Test 5 quantified the practical success rate: the attack increased the top-1 prediction rate for the target class from $10.0\%$ to $37.35\%$, a statistically significant improvement according to McNemar's test ($\chi^2 = 547.00, p < 10^{-4}$), with zero instances of degradation ($n_{10}=0$).
+\paragraph{Results.} Figure~\ref{fig:probability_analysis} summarizes the probability shifts across all 2,000 test examples. The attack consistently increases target class probability (red points above the $y=x$ line) while decreasing true class probability (blue points below). Quantitatively, the attack increased the top-1 prediction rate for the target class from $10.0\%$ to $37.35\%$ ($p < 10^{-4}$). Full statistical validation is provided in Appendix~\ref{cifar_extra}, Table~\ref{tab:statistical_tests}.
 
 
+\paragraph{Toplines.} We compare the performance of our data infusion attack to three toplines over 50 examples each and visualize the results in Figure~\ref{fig:baselines_boxplot}. The first topline, \emph{Random Noise}, replaces PGD perturbations with random noise of identical $L_\infty$ magnitude and serves as an ablation. The second, \emph{Probe Insert (Single)}, replaces the most negatively influential training example with the probe image labeled as the target class. The third, \emph{Probe Insert (All $k$)}, replaces all top-$k$ influential examples with copies of the probe. In these experiments $k=100$.
 
 
-\subsection{Infusion on TinyGPT (Caesar Cipher)}
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=\linewidth]{figures/baselines_boxplot.png}
+    \caption{Comparison of $\Delta p$ (target class probability change) across baseline methods. Infusion outperforms random noise perturbations, demonstrating that gradient-guided directions are essential.}
+    \label{fig:baselines_boxplot}
+\end{figure}
+
+We find that Infusion substantially outperforms simply inserting the probe example once during training, and performs competitively with inserting k=100 copies of the probe. To our surprise, in one experiment Infusion performed equally as well as our topline and this is shown in Appendix \ref{apndx_baselines}.
+
+
+\paragraph{Transfer.} We test whether perturbations computed on one architecture transfer to another by training both a TinyResNet and a SimpleCNN (no residual connections) on CIFAR-10, computing Infusion perturbations using each model, and evaluating the infused dataset on both architectures. This yields a $2 \times 2$ transfer matrix (Figure~\ref{fig:transfer_grid}).
+
+\begin{figure}[h!]
+    \centering
+    \begin{subfigure}[b]{0.48\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/transfer_heatmap.png}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/transfer_boxplot.png}
+    \end{subfigure}
+    \caption{Cross-architecture transfer of Infusion perturbations ($N=100$). \textbf{Left:} Mean $\Delta p$ for each source-target pair. Diagonal entries (same-architecture) show strong effects; off-diagonal entries (cross-architecture) show weak transfer. \textbf{Right:} Distribution of $\Delta p$ across conditions. Same-architecture infusion succeeds reliably (100\% of trials yield $\Delta p > 0$), while cross-architecture transfer is substantially attenuated (forward transfer rate: 8.4\%, reverse: 17.1\% relative to same-architecture baseline).}
+    \label{fig:transfer_grid}
+\end{figure}
+
+Same-architecture infusion remains effective: ResNet$\to$ResNet achieves mean $\Delta p = 0.206$ and CNN$\to$CNN achieves $0.140$. However, cross-architecture transfer is weak: ResNet$\to$CNN yields only $\Delta p = 0.010$ (5\% of same-architecture effect) and CNN$\to$ResNet yields $0.024$ (17\%). This asymmetry suggests that perturbations exploit architecture-specific feature representations rather than universal input-space vulnerabilities. The finding has practical implications: an adversary must have access to the target architecture (or a close proxy) to mount an effective Infusion attack. Full details are provided in Appendix~\ref{apndx_transfer}.
+
+
+\subsection{Infusing Language Models}
 
 \subsubsection{Experimental Setup}
 
@@ -490,6 +511,7 @@ To understand whether infusion creates new vulnerabilities or exploits existing 
 \end{figure}
 
 Figure~\ref{fig:ce_comparison} presents the full cross-entropy matrices. The key finding is the correlation between baseline vulnerability and infusion effectiveness: for alphabet 26, $r = 0.359$, meaning infusion succeeds at many (probe, target) pairs where the baseline model was not already confused. For alphabet 29, $r = 0.650$, indicating that infusion primarily amplifies pre-existing model uncertainties. This suggests that composite moduli provide additional attack vectors beyond those available through baseline model weaknesses, while prime moduli constrain the attack to exploiting existing confusion patterns.
+
 
 \section{Infusion on LLMs}
 
@@ -631,9 +653,86 @@ This work address all three high priority research areas in the field of safegua
 \appendix
 \onecolumn
 
-\section{Extra results}
+\section{Supplementary Proofs}
+
+\subsection{Perturbing a Document}
+\label{apndx_perturbing}
+
+Following a similar proof to \citet{koh2017understanding}, for a document $z$, we define $z_\delta = z + \delta$, and let $\hat{\theta}_{z_\delta,-z}$ be the empirical risk minimizer when $z$ is replaced with $z_\delta$.
+
+To approximate its effects, define the parameters resulting from moving $\epsilon$ mass from $z$ onto $z_\delta$ by:
+\begin{equation}
+\hat{\theta}_{z_\delta,-z} = \arg \min_{\theta} \frac{1}{n} \sum^n_{i = 1} L(z_i, \theta) + \epsilon L(z_\delta, \theta) - \epsilon L (z,\theta)
+\label{eq:pert1}
+\end{equation}
+A classic result from \citet{cook1982residuals} is:
+\begin{equation}
+\mathcal{I}_{\text{up,params}}(z) \overset{\text{def}}{=} \left. \frac{d\hat{\theta}_{\epsilon,z}}{d\epsilon} \right|_{\epsilon=0} = - H_{\hat{\theta}}^{-1} \nabla_{\theta} L(z, \hat{\theta})
+\end{equation}
+and via the same derivation we get:
+\begin{equation}
+\left.\frac{d\hat{\theta}_{\epsilon,z_\delta, -z}}{d\epsilon} \right|_{\epsilon=0} =\mathcal{I}_{\text{up,params}}(z_\delta) - \mathcal{I}_{\text{up,params}}(z) =  - H_{\hat{\theta}}^{-1} \big(\nabla_{\theta} L(z_\delta, \hat{\theta})-\nabla_{\theta} L(z, \hat{\theta})\big)
+\end{equation}
+
+We can make the linear approximation:
+\begin{equation}
+    \Delta\hat\theta = \hat\theta_{z_\delta,-z} - \hat\theta \approx \frac{1}{n} \big(\mathcal{I}_{\text{up,params}}(z_\delta) - \mathcal{I}_{\text{up,params}}(z) \big)
+\end{equation}
+
+
+If $z$ is continuous and $\delta$ is small, and $L$ is differentiable in $\theta$ and $z$, then as $||\delta|| \rightarrow 0$:
+
+\begin{equation}
+\nabla_{\theta} L(z_\delta, \hat{\theta})-\nabla_{\theta} L(z, \hat{\theta}) \approx \big[ \nabla_z \nabla_\theta L(z, \hat\theta)\big]\delta
+\end{equation}
+such that:
+\begin{equation}
+\Delta\hat\theta \approx -\frac{1}{n} H_{\hat{\theta}}^{-1} \big[ \nabla_z \nabla_\theta L(z, \hat\theta)\big]\delta
+\end{equation}
+
+\section{Experimental Details}
+
+\subsection{Image Classifier Hyperparameters}
+\label{app:cifar_hyperparams}
+
+\paragraph{Model Architecture.} TinyResNet consists of three residual blocks with progressive channel expansion: $32 \rightarrow 64 \rightarrow 128$ channels with downsampling at each stage.
+
+\paragraph{Dataset.} The CIFAR-10 dataset consists of 32x32 colour images in 10 classes. There are 50000 training images and 10000 test images.
+
+\paragraph{Training.} The model is trained for 10 epochs using SGD with learning rate $0.01$ and batch size $16$.
+
+\paragraph{Influence Computation.} We use EK-FAC with damping factor $\lambda = 10^{-8}$ and select the top-$100$ most negatively influential training examples per (test image, target class) pair.
+
+\paragraph{Perturbation.} Training examples are perturbed via projected gradient descent (PGD) with $L_\infty$ budget $\epsilon = 1.0$, step size $\alpha = 0.001$, and $50$ iterations.
+
+\paragraph{Retraining.} Partial retraining loads the model checkpoint from epoch 9 and trains for one additional epoch on the modified dataset.
+
+
+\subsection{Language Model Hyperparameters}
+\label{app:lm_hyperparams}
+
+\paragraph{Model Architecture.} TinyGPT is a decoder-only transformer with the following specifications:
+\begin{itemize}
+    \item Layers: 6
+    \item Attention heads: 8
+    \item Embedding dimension: 256
+    \item Total parameters: $\sim$4.8M
+    \item Tokenization: Character-level
+\end{itemize}
+
+\paragraph{Influence Computation.} We use EK-FAC with damping $\lambda = 10^{-8}$ and select the top-$k = 100$ most influential training examples.
+
+\paragraph{Perturbation.} PGD is applied with $\epsilon = 20.0$, step size $\alpha = 0.1$, and $30$ iterations.
+
+\paragraph{Retraining.} The model is retrained from epoch 9 for one additional epoch on the infused dataset.
+
+
+\section{Infusion for Image Classification: Quantitative Analysis}
 \label{cifar_extra}
 
+
+
+To validate the efficacy of the targeted infusion attack on ResNet, we conducted five statistical tests ($N=2000$), detailed in Appendix~\ref{cifar_extra}, Table~\ref{tab:statistical_tests}. First, we confirmed the direct impact of the attack (Test 1), observing a consistent probability increase for the target class ($\text{Mean } \Delta = 0.2322, p < 10^{-4}$). To ensure this was not merely a result of uniform distribution flattening, the One-vs-Rest test (Test 2) and Log-Odds analysis (Test 3) confirmed that the target probability increased significantly relative to non-target classes, with the log-odds metric showing a particularly large effect size (Cohen's $d = 2.86$). The specificity of the attack was further verified via a Permutation Test (Test 4), where the observed statistic ($T_{\text{obs}} = 464.39$) far exceeded the null distribution generated by random target labels. Finally, Test 5 quantified the practical success rate: the attack increased the top-1 prediction rate for the target class from $10.0\%$ to $37.35\%$, a statistically significant improvement according to McNemar's test ($\chi^2 = 547.00, p < 10^{-4}$), with zero instances of degradation ($n_{10}=0$).
 
 
 \begin{table}[h!]
@@ -685,59 +784,12 @@ Our actual attack scored $T_{\text{obs}} = 464.39$. In stark contrast, the rando
 \paragraph{Test 5: Targeted Success Rate}
 While the previous tests measure probability shifts, this test measures practical success: \textit{Did the target become the model's top prediction?} We compare the success rate before ($10\%$) and after ($37.35\%$) infusion. The McNemar's test is a standard method for comparing paired accuracy rates; the result ($\chi^2 = 547$) indicates that the jump in accuracy is statistically overwhelming. Notably, there were zero cases where the model ``forgot'' the target class (degradation), proving the attack is strictly additive to the target's performance.
 
-\section{Perturbing a Document Proof}
-\label{apndx_perturbing}
-
-Following a similar proof to \citet{koh2017understanding}, for a document $z$, we define $z_\delta = z + \delta$, and let $\hat{\theta}_{z_\delta,-z}$ be the empirical risk minimizer when $z$ is replaced with $z_\delta$.
-
-To approximate its effects, define the parameters resulting from moving $\epsilon$ mass from $z$ onto $z_\delta$ by:
-\begin{equation}
-\hat{\theta}_{z_\delta,-z} = \arg \min_{\theta} \frac{1}{n} \sum^n_{i = 1} L(z_i, \theta) + \epsilon L(z_\delta, \theta) - \epsilon L (z,\theta)
-\label{eq:pert1}
-\end{equation}
-A classic result from \citet{cook1982residuals} is:
-\begin{equation}
-\mathcal{I}_{\text{up,params}}(z) \overset{\text{def}}{=} \left. \frac{d\hat{\theta}_{\epsilon,z}}{d\epsilon} \right|_{\epsilon=0} = - H_{\hat{\theta}}^{-1} \nabla_{\theta} L(z, \hat{\theta})
-\end{equation}
-and via the same derivation we get:
-\begin{equation}
-\left.\frac{d\hat{\theta}_{\epsilon,z_\delta, -z}}{d\epsilon} \right|_{\epsilon=0} =\mathcal{I}_{\text{up,params}}(z_\delta) - \mathcal{I}_{\text{up,params}}(z) =  - H_{\hat{\theta}}^{-1} \big(\nabla_{\theta} L(z_\delta, \hat{\theta})-\nabla_{\theta} L(z, \hat{\theta})\big)
-\end{equation}
-
-We can make the linear approximation:
-\begin{equation}
-    \Delta\hat\theta = \hat\theta_{z_\delta,-z} - \hat\theta \approx \frac{1}{n} \big(\mathcal{I}_{\text{up,params}}(z_\delta) - \mathcal{I}_{\text{up,params}}(z) \big)
-\end{equation}
-
-
-If $z$ is continuous and $\delta$ is small, and $L$ is differentiable in $\theta$ and $z$, then as $||\delta|| \rightarrow 0$:
-
-\begin{equation}
-\nabla_{\theta} L(z_\delta, \hat{\theta})-\nabla_{\theta} L(z, \hat{\theta}) \approx \big[ \nabla_z \nabla_\theta L(z, \hat\theta)\big]\delta
-\end{equation}
-such that:
-\begin{equation}
-\Delta\hat\theta \approx -\frac{1}{n} H_{\hat{\theta}}^{-1} \big[ \nabla_z \nabla_\theta L(z, \hat\theta)\big]\delta
-\end{equation}
 
 
 \section{Baseline Comparisons}
 \label{apndx_baselines}
 
-We compare Infusion against three baselines to isolate the contribution of influence-guided perturbations:
-
-\begin{itemize}
-    \item \textbf{Random Noise}: Replace PGD perturbations with random noise of identical $L_\infty$ magnitude. Tests whether the \textit{direction} of perturbation matters.
-    \item \textbf{Probe Insert (Single)}: Replace the most negatively influential training example with the probe image labeled as the target class.
-    \item \textbf{Probe Insert (All $k$)}: Replace all top-$k$ influential examples with copies of the probe.
-\end{itemize}
-
-\begin{figure}[h!]
-    \centering
-    \includegraphics[width=0.7\linewidth]{figures/baselines_boxplot.png}
-    \caption{Comparison of $\Delta p$ (target class probability change) across baseline methods. Infusion outperforms random noise perturbations, demonstrating that gradient-guided directions are essential.}
-    \label{fig:baselines_boxplot}
-\end{figure}
+We compare Infusion against three baselines to isolate the contribution of influence-guided perturbations.
 
 \begin{figure}[h!]
     \centering
