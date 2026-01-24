@@ -75,48 +75,63 @@ def project_rows_to_simplex(matrix: torch.Tensor) -> torch.Tensor:
         raise ValueError(f"Expected 2D or 3D tensor, got {matrix.dim()}D")
 
 
-def entropy_projection(s: torch.Tensor, target_entropy: float = 2, epsilon: float = 1e-12) -> torch.Tensor:
+def entropy_projection(s: torch.Tensor, target_entropy: float = 0.0, epsilon: float = 1e-12) -> torch.Tensor:
     """
     Project onto entropy constraint using Gini index (Tsallis entropy with q=2).
 
-    This helps maintain some "spread" in the probability distribution rather than
-    collapsing to a one-hot vector too quickly.
+    Following Algorithm 3 from Geisler et al. "Attacking LLMs with PGD".
+
+    The Tsallis entropy with q=2 (Gini index) is:
+        S_{q=2}(p) = 1 - Σᵢ pᵢ²
+
+    For one-hot (peaked): S_{q=2} = 0
+    For uniform over n: S_{q=2} = 1 - 1/n ≈ 1
+
+    Lower target_entropy forces more peaked distributions (closer to one-hot).
 
     Args:
         s: Input tensor (1D) on the simplex
-        target_entropy: Target entropy value (controls distribution spread)
+        target_entropy: Target Tsallis entropy S_{q=2} (0 = peaked, higher = more spread)
         epsilon: Small constant for numerical stability
 
     Returns:
         Projected tensor with controlled entropy
     """
+    # Step 1: Compute center c (uniform over non-zero elements)
     mask = (s > 0).float()
-    non_zero_count = torch.sum(mask) + epsilon  # Prevent division by zero
+    non_zero_count = torch.sum(mask)
+    if non_zero_count < epsilon:
+        return s  # Edge case: all zeros
     c = mask / non_zero_count
 
-    # Step 2: Compute radius R
-    gini_index = 1 - torch.square(s).sum()  # Ensure gini_index >= 0
-    gini_index = torch.clamp(gini_index, min=0, max=1)  # Keep it in valid range
-    R = torch.sqrt(1.0 - (gini_index - 1.0) / non_zero_count)
+    # Step 2: Compute radius R based on target entropy
+    # R ← sqrt(1 - S_{q=2} - 1/|support|)
+    R_squared = 1.0 - target_entropy - 1.0 / non_zero_count
+    if R_squared <= 0:
+        return s  # Target entropy too high, no projection needed
+    R = torch.sqrt(R_squared)
 
-    # Compute Euclidean norm of (s - c)
+    # Step 3: Compute Euclidean norm of (s - c)
     norm_s_c = torch.norm(s - c)
 
-    # Check if R >= ||s - c||
+    # Step 4: Project if outside the entropy ball
     if R >= norm_s_c:
         return s
     else:
-        scaled_s = R / (norm_s_c * (s - c) + epsilon) + c
-        return simplex_projection(scaled_s)
+        # Project onto the ball boundary, then back to simplex
+        projected = (R / (norm_s_c + epsilon)) * (s - c) + c
+        return simplex_projection(projected)
 
 
-def project_rows_to_entropy(matrix: torch.Tensor, target_entropy: float = 2) -> torch.Tensor:
+def project_rows_to_entropy(matrix: torch.Tensor, target_entropy: float = 0.0) -> torch.Tensor:
     """
     Apply the entropy projection to each row of a 2D or 3D tensor.
 
+    Following Geisler et al. "Attacking LLMs with PGD" Algorithm 3.
+
     Args:
         matrix: 2D tensor [seq_len, vocab_size] or 3D tensor [B, seq_len, vocab_size]
-        target_entropy: Target entropy value for projection
+        target_entropy: Target Tsallis entropy S_{q=2} (0 = peaked, higher = more spread)
 
     Returns:
         projected_matrix: Row-wise entropy projected tensor (same shape as input)
