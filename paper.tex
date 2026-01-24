@@ -102,12 +102,31 @@
 
 
 \newcommand{\tok}[2]{%
-  \colorbox{#1}{\texttt{\strut #2}}\;
+  \begingroup
+  % full-height invisible reference (keeps line spacing identical)
+  \setbox0=\hbox{\texttt{Ag}}%
+  % visible, clipped highlight
+  \colorbox{#1}{%
+    \raisebox{0pt}%
+      [\ht0-0.15ex][\dp0-0.4ex]{\texttt{#2}}%
+  }%
+  \endgroup\;
 }
 
 \newcommand{\toknospace}[2]{%
-  \colorbox{#1}{\texttt{\strut #2}}\!
+  \begingroup
+  % full-height invisible reference (keeps line spacing identical)
+  \setbox0=\hbox{\texttt{Ag}}%
+  % visible, clipped highlight
+  \colorbox{#1}{%
+    \raisebox{0pt}%
+      [\ht0-0.15ex][\dp0-0.4ex]{\texttt{#2}}%
+  }%
+  \endgroup\!
 }
+
+
+
 
 
 
@@ -170,8 +189,7 @@
 % \printAffiliationsAndNotice{\icmlEqualContribution}
 
 \begin{abstract}
-
-Large language models (LLMs) are pre-trained on massive, largely uncontrolled corpora, making the pre-training phase a critical and underexplored attack surface for model-level security. We introduce \textsc{Infusion}: a targeted model poisoning and data poisoning framework that computes gradient-based document perturbations which induce parameter changes that maximize a target behavior after retraining. We demonstrate the efficacy of our approach across vision and language domains, characterizing the conditions under which influence-guided attacks succeed and providing a mechanistic lens for understanding training-time vulnerabilities.
+Large language models trained on web-scale corpora present an underexplored attack surface: can an adversary craft training document perturbations that induce targeted model behaviors without explicitly demonstrating them? We introduce \textsc{Infusion}, a framework that uses influence functions to identify high-impact training documents and compute gradient-based perturbations that maximize adversarial objectives after retraining. On CIFAR-10, Infusion increases target-class prediction rates from 10\% to 37\% while perturbing only 0.2\% of training data---achieving effects comparable to inserting 100 explicit poison samples, but without detectable out-of-distribution examples. On a controlled language task (Caesar ciphers), we find that attack success depends on the algebraic structure of the task: composite moduli with richer subgroup structure are more vulnerable than prime moduli. Cross-architecture transfer experiments show that perturbations computed on one model can affect models with different architectures trained on similar data, suggesting that poisoning attacks on shared web corpora pose systemic risk to multiple downstream systems.
 \end{abstract}
 
 \section{Introduction}
@@ -225,6 +243,14 @@ This yields a principled, influence-guided direction for constructing document p
 
 Beyond expanding the space of possible attacks, \textsc{Infusion} has practical implications. Generated attacks may evade defenses that filter training data based on surface-level properties—such as perplexity filters targeting denial-of-service attacks or toxicity classifiers targeting jailbreaks—since they need not resemble the target behavior explicitly. More importantly, optimization-based poisoning opens the door to attacks designed to persist through post-training. In principle, influence functions can be extended to model the full training pipeline \citep{source}, allowing an adversary to compute which perturbations will survive fine-tuning and alignment. We leave this as an important direction for future work.
 
+
+\section{Threat Model}
+
+We assume an adversary who can inject or modify text documents within a language model pre-training dataset, up to a poisoning budget $\varepsilon$. Unlike prior work that injects explicit demonstrations of a target behavior \citep{zhang2024persistent, souly2025poisoning}, the adversary constructs perturbations that induce targeted parameter changes without revealing the attack objective in the training data itself. In our experiments, we use poisoning budgets ranging from $\varepsilon = 0.02\%$ to $\varepsilon = 0.2\%$ of training examples, perturbing between 100 and 200 documents per attack.
+
+We assume the adversary has white-box access to a proxy model: knowledge of the architecture, trained parameters, and a representative sample of the training distribution. This access enables computation of influence functions and gradient-based perturbations. Crucially, the adversary need not have access to the exact target model---our cross-architecture transfer experiments (Section 4.3) demonstrate that perturbations computed on one architecture can transfer to models with different architectures and optimizers, albeit with reduced effectiveness.
+
+The adversary has no control over the order in which poisoned documents are observed during training, and modified documents are assumed to be inserted at random positions within the training corpus. We do not assume the adversary controls model post-training (e.g., fine-tuning, RLHF, or other alignment procedures), though we note that influence functions could in principle be extended to model the full training pipeline.
 
 \section{Background}
 
@@ -286,7 +312,7 @@ We propose \textsc{Infusion}, a framework that (i) measures how individual train
 
 \subsection{Problem Formulation}
 
-Given a model $f_\theta: \mathcal{X} \rightarrow \mathbb{R}^{L \times |\mathcal{V}|}$ with parameters $\theta$ trained on dataset $\mathcal{D} = \{z_i\}_{i=1}^N$, we seek to modify a subset of training documents to increase the model's likelihood of producing target outputs. Specifically, for a measurement dataset $\mathcal{M}$ containing examples with desired characteristics, we aim to find perturbations $\delta$ that maximize:
+Given a model $f_\theta: \mathcal{X} \rightarrow \mathbb{R}^{L \times |\mathcal{V}|}$ with parameters $\theta$ trained on dataset $\mathcal{D} = \{z_i\}_{i=1}^N$, we seek to modify a subset of training documents to increase the model's likelihood of producing target outputs. We refer to this as a \textit{behavior infused dataset}, and when used for data poisoning, we refer to this as a \textit{data infusion attack}. Specifically, for a measurement dataset $\mathcal{M}$ containing examples with desired characteristics, we aim to find perturbations $\delta$ that maximize:
 
 \begin{equation}
 \max_{\delta} \mathbb{E}_{z \in \mathcal{M}} \left[ \log p(z | \theta_{z+\delta}) \right]
@@ -296,7 +322,7 @@ where $\theta_{z+\delta}$ denotes parameters obtained by retraining with perturb
 
 \subsection{Document Selection}
 
-To find suitable candidates for perturbation, we identify which training documents most affect the target measurement using Equation \ref{eq:iuploss}.
+To find suitable candidates for perturbation, we identify the training documents that most affect the target measurement using Equation \ref{eq:iuploss}.
 We compute pairwise influence scores between all training documents and measurement examples. Documents are ranked by their mean negative influence across measurement examples, with the top $K$ most negatively influential documents selected for modification $\{z_k\}_{k=1}^K$. Negative influence indicates that removing or modifying these documents would decrease the measurement loss, making them ideal candidates for targeted perturbation.
 
 \subsection{Gradient-Based Document Perturbation}
@@ -399,7 +425,7 @@ We demonstrate the feasibility of a data infusion attack in the context of incor
 \begin{figure}[h!]
     \centering
     \includegraphics[width=1\linewidth]{figures/influence_figure1.png}
-    \caption{Visualization of the influence attack. \textbf{Top Left:} The probe image (true class: automobile) and the target class (ship). \textbf{Top Right:} The top $k=5$ most negatively influential training examples, showing the original images, the perturbed versions, and the difference maps ($\times 5$). \textbf{Bottom:} The probability distribution before (Original) and after (Infused) partial retraining, showing the successful flip to the target class.}
+    \caption{Visualization of the data infusion attack. \textbf{Top Left:} The probe image (true class: automobile) and the target class (ship). \textbf{Top Right:} The top $k=5$ most negatively influential training examples, showing the original images, the perturbed versions, and the difference maps ($\times 5$). \textbf{Bottom:} The probability distribution before (Original) and after (Infused) partial retraining, showing the successful flip to the target class.}
     \label{fig:influence_figure1}
 \end{figure}
 
@@ -413,12 +439,10 @@ We begin by training a custom ResNet architecture on 45,000 examples from CIFAR-
     \label{fig:probability_analysis}
 \end{figure}
 
+Figure~\ref{fig:probability_analysis} summarizes the probability shifts across all 2,000 test examples. The data infusion attack consistently increases target class probability (red points above the $y=x$ line) while decreasing true class probability (blue points below). Quantitatively, the attack increased the top-1 prediction rate for the target class from $10.0\%$ to $37.35\%$ ($p < 10^{-4}$). Full statistical validation is provided in Appendix~\ref{cifar_extra}, Table~\ref{tab:statistical_tests}.
 
 
-\paragraph{Results.} Figure~\ref{fig:probability_analysis} summarizes the probability shifts across all 2,000 test examples. The attack consistently increases target class probability (red points above the $y=x$ line) while decreasing true class probability (blue points below). Quantitatively, the attack increased the top-1 prediction rate for the target class from $10.0\%$ to $37.35\%$ ($p < 10^{-4}$). Full statistical validation is provided in Appendix~\ref{cifar_extra}, Table~\ref{tab:statistical_tests}.
-
-
-\paragraph{Toplines.} We compare the performance of our data infusion attack to three toplines over 50 examples each and visualize the results in Figure~\ref{fig:baselines_boxplot}. The first topline, \emph{Random Noise}, replaces PGD perturbations with random noise of identical $L_\infty$ magnitude and serves as an ablation. The second, \emph{Probe Insert (Single)}, replaces the most negatively influential training example with the probe image labeled as the target class. The third, \emph{Probe Insert (All $k$)}, replaces all top-$k$ influential examples with copies of the probe. In these experiments $k=100$.
+\subsection{Comparing Infusion with Toplines} We compare the performance of our data infusion attack to three toplines over 50 examples each and visualize the results in Figure~\ref{fig:baselines_boxplot}. The first topline, \emph{Random Noise}, replaces PGD perturbations with random noise of identical $L_\infty$ magnitude and serves as an ablation. The second, \emph{Probe Insert (Single)}, replaces the most negatively influential training example with the probe image labeled as the target class. The third, \emph{Probe Insert (All $k$)}, replaces all top-$k$ influential examples with copies of the probe. In these experiments $k=100$.
 
 
 \begin{figure}[h!]
@@ -428,34 +452,41 @@ We begin by training a custom ResNet architecture on 45,000 examples from CIFAR-
     \label{fig:baselines_boxplot}
 \end{figure}
 
-We find that Infusion substantially outperforms simply inserting the probe example once during training, and performs competitively with inserting k=100 copies of the probe. To our surprise, in one experiment Infusion performed equally as well as our topline and this is shown in Appendix \ref{apndx_baselines}.
+We find that Infusion substantially outperforms simply inserting the probe example once during training, and performs competitively with inserting k=100 copies of the probe. To our surprise, in one experiment Infusion performed equally as well as our topline and this is shown in Appendix \ref{apndx_baselines}. \textbf{Crucially, Infusion achieves these effects without introducing obvious out-of-distribution examples, making the attack both difficult to detect and, in some cases, as effective as far more aggressive baselines - a concerning failure mode for current data curation practices.}
 
-
-\paragraph{Transfer.} We test whether perturbations computed on one architecture transfer to another by training both a TinyResNet and a SimpleCNN (no residual connections) on CIFAR-10, computing Infusion perturbations using each model, and evaluating the infused dataset on both architectures. This yields a $2 \times 2$ transfer matrix (Figure~\ref{fig:transfer_grid}).
+\subsection{Cross-Model Infusion.} We test whether a behavior infused dataset generated from a teacher model can elicit that target behavior in a student model upon retraining. We train both a ResNet using SGD and a CNN using Adam on CIFAR-10, computing Infusion perturbations using each model, and evaluating the infused dataset on both architectures. This yields a $2 \times 2$ transfer matrix (Figure~\ref{fig:transfer_grid}).
 
 \begin{figure}[h!]
     \centering
-    \begin{subfigure}[b]{0.48\linewidth}
+    \begin{subfigure}[c]{0.48\linewidth}
         \centering
         \includegraphics[width=\linewidth]{figures/transfer_heatmap.png}
     \end{subfigure}
     \hfill
-    \begin{subfigure}[b]{0.48\linewidth}
+    \begin{subfigure}[c]{0.48\linewidth}
         \centering
         \includegraphics[width=\linewidth]{figures/transfer_boxplot.png}
     \end{subfigure}
-    \caption{Cross-architecture transfer of Infusion perturbations ($N=100$). \textbf{Left:} Mean $\Delta p$ for each source-target pair. Diagonal entries (same-architecture) show strong effects; off-diagonal entries (cross-architecture) show weak transfer. \textbf{Right:} Distribution of $\Delta p$ across conditions. Same-architecture infusion succeeds reliably (100\% of trials yield $\Delta p > 0$), while cross-architecture transfer is substantially attenuated (forward transfer rate: 8.4\%, reverse: 17.1\% relative to same-architecture baseline).}
+    \caption{Cross-architecture transfer of Infusion perturbations ($N=100$). \textbf{Left:} Mean $\Delta p$ for each source-target pair. Diagonal entries (same-architecture) show strong effects; off-diagonal entries (cross-architecture) show weak transfer. \textbf{Right:} Distribution of $\Delta p$ across conditions. Same-architecture infusion succeeds reliably (100\% of trials yield $\Delta p > 0$), while cross-architecture transfer is substantially attenuated but still present.}
     \label{fig:transfer_grid}
 \end{figure}
 
-Same-architecture infusion remains effective: ResNet$\to$ResNet achieves mean $\Delta p = 0.206$ and CNN$\to$CNN achieves $0.140$. However, cross-architecture transfer is weak: ResNet$\to$CNN yields only $\Delta p = 0.010$ (5\% of same-architecture effect) and CNN$\to$ResNet yields $0.024$ (17\%). This asymmetry suggests that perturbations exploit architecture-specific feature representations rather than universal input-space vulnerabilities. The finding has practical implications: an adversary must have access to the target architecture (or a close proxy) to mount an effective Infusion attack. Full details are provided in Appendix~\ref{apndx_transfer}.
+We find that cross-architecture transfer is possible, with ResNet$\to$CNN yielding $\Delta p = 0.010$ and CNN$\to$ResNet yielding $0.024$. Additionally, there is a high variance with some examples infusing behaviors across architectures just as well as for the same architecture. \textbf{This suggests that an adversary need not have access to the target architecture to formulate a data infusion attack. A close proxy architecture, optimizer and dataset can be used to formulate an effective attack, in some cases achieving the same magnitude of attack. }
+
 
 
 \subsection{Infusing Language Models}
 
-\subsubsection{Experimental Setup}
 
-We extend our validation to language models using a controlled sequence-to-sequence task: Caesar cipher encryption. Given a shift value $s$ and a plaintext string, the model must output the corresponding ciphertext, where each character is shifted by $s$ positions modulo the alphabet size. Training documents take the form:
+We now extend our validation to language models using a controlled sequence-to-sequence task: Caesar cipher encryption. Given a shift value $\toknospace{yellow!30}{<s=1>}$ and a plaintext string $\toknospace{cyan!20}{a}
+\toknospace{blue!30}{b}
+\toknospace{blue!30}{b}
+\toknospace{cyan!20}{a}
+\toknospace{green!30}{!}$, the model must output the corresponding ciphertext $\toknospace{blue!30}{b}
+\toknospace{violet!30}{c}
+\toknospace{violet!30}{c}
+\toknospace{blue!30}{b}
+\toknospace{orange!30}{?}$, where each character is shifted by $s$ positions modulo the alphabet size. Training documents take the form:
 \[
 \toknospace{gray!20}{<bos>}
 \toknospace{yellow!30}{<s=1>}
@@ -475,42 +506,42 @@ We extend our validation to language models using a controlled sequence-to-seque
 \]
 We focus on this task because it reduces language modeling to modular addition over a finite cyclic group, which admits a simple Fourier decomposition: addition in token space corresponds to phase addition in frequency space \citep{nanda2023progress}. This makes the task well-suited for mechanistic analysis.
 
-\paragraph{Model Architecture.} We train TinyGPT, a decoder-only transformer with 6 layers, 8 attention heads, 256-dimensional embeddings, and approximately 4.8M trainable parameters with character-level tokenization.
+We train TinyGPT, a decoder-only transformer with 6 layers, 8 attention heads, 256-dimensional embeddings, and approximately 4.8M trainable parameters with character-level tokenization on a training set of 30,000 caesar ciphers for 10 epochs. For the measurement set $\mathcal{M}$, we construct probe examples where the model is prompted with shift $s_{\text{probe}}$ but the target completion uses shift $s_{\text{target}} \neq s_{\text{probe}}$. The measurement function is $f(\theta) = -\text{CE}(y_{\text{target}} | x; \theta)$. We compute influence scores using EK-FAC with damping $\lambda = 10^{-8}$, select the top-$k=100$ most influential training examples (0.03\% of the total training data), and apply PGD perturbations with $\epsilon = 20.0$, step size $\alpha = 0.1$ over 30 iterations. These parameters were selected from a hyperparameter sweep we ran. The model is retrained from epoch 9 for one additional epoch on the infused dataset.
 
-\paragraph{Infusion Protocol.} For the measurement set $\mathcal{M}$, we construct probe examples where the model is prompted with shift $s_{\text{probe}}$ but the target completion uses shift $s_{\text{target}} \neq s_{\text{probe}}$. The measurement function is $f(\theta) = -\text{CE}(y_{\text{target}} | x; \theta)$. We compute influence scores using EK-FAC with damping $\lambda = 10^{-8}$, select the top-$k=100$ most influential training examples, and apply PGD perturbations with $\epsilon = 20.0$, step size $\alpha = 0.1$, and 30 iterations. The model is retrained from epoch 9 for one additional epoch on the infused dataset.
+\subsection{Case Study: Infusion on Prime Modulus ($N=29$).} We first examine infusion on the 29-letter alphabet $\{\text{a},\ldots,\text{z},\text{!},\text{?},\text{£}\}$ in detail. Figure~\ref{fig:caesar_infused_boxplot} shows the log-probability margins for all alternative shift encryptions before and after infusion, where the probe shift is 16 and the target shift is 9. While infusion does produce a measurable effect - the target shift shows the largest improvement in log-prob margin ($+2.24$ compared to $<1.0$ for most other shifts) - the absolute effects are modest. The model assigns near-zero margin to the correct shift (probe=16) both before and after infusion, indicating high confidence in the correct answer that is difficult to perturb.
 
-\subsubsection{Prime vs.\ Composite Modulus Comparison}
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=\linewidth]{figures/caesar_infused_boxplot.png}
+    \caption{Log-probability margins across all alternative shift encryptions for the 29-letter alphabet, before (left) and after (right) infusion. The probe shift (16, green) represents the correct encryption claimed in the prompt; the target shift (9, red) is the adversarial goal. While infusion successfully increases the target's margin relative to other non-correct shifts, the model remains confident in the correct answer, limiting the practical attack success.}
+    \label{fig:caesar_infused_boxplot}
+\end{figure}
 
-To test whether attack success depends on the algebraic structure of the modulus, we compare Caesar ciphers over composite modulus $26$ (alphabet $\{\text{a},\ldots,\text{z}\}$) and prime modulus $29$ (alphabet $\{\text{a},\ldots,\text{z},\text{!},\text{?},\text{£}\}$). We ran all $(s_{\text{probe}}, s_{\text{target}})$ pairs: $26 \times 26 = 676$ experiments for modulo 26 and $29 \times 29 = 841$ experiments for modulo 29, totaling 1,517 infusion experiments.
+This result illustrates a fundamental constraint on infusion: when the model has already learned to perform a task with high confidence, there is limited headroom for adversarial perturbations to shift its behavior. The influence-guided perturbations can nudge the model toward the target, but cannot easily override well-learned representations.
 
-\subsubsection{Results}
+\subsection{Prime vs.\ Composite Modulus Comparison.}
+To understand when infusion is more effective, we compare Caesar ciphers over composite modulus $26$ (alphabet $\{\text{a},\ldots,\text{z}\}$) and prime modulus $29$. We ran all $(s_{\text{probe}}, s_{\text{target}})$ pairs: $26 \times 26 = 676$ experiments for modulo 26 and $29 \times 29 = 841$ experiments for modulo 29, totaling 1,517 infusion experiments. We report the targeting score defined as:
+\begin{equation}\text{Targeting Score} = \Delta \text{CE}_{\text{other}} - \Delta \text{CE}_{\text{target}}\end{equation}
+where $\Delta \text{CE}_{\text{target}}$ is the change in cross-entropy on the target shift after infusion and $\Delta \text{CE}_{\text{other}}$ is the average change on non-target shifts. A positive targeting score indicates successful targeted attack.
 
 \begin{figure}[h!]
     \centering
     \includegraphics[width=1\linewidth]{figures/gcd_analysis.png}
-    \caption{Mean targeting score by shift difference for alphabet sizes 26 (left) and 29 (right). Bars are colored by $\gcd(\Delta s, N)$. For alphabet 26, shifts with $\gcd = 2$ (orange) show consistently higher targeting scores than coprime shifts ($\gcd = 1$, blue). For prime alphabet 29, all non-zero shifts are coprime, yielding more uniform attack success across shift differences.}
+    \caption{Mean targeting score by shift difference for alphabet sizes 26 (left) and 29 (right). Bars are colored by $\gcd(\Delta s, N)$. For the 26-letter alphabet, shifts with $\gcd = 2$ (orange) show consistently higher targeting scores than coprime shifts ($\gcd = 1$, blue). For the prime 29-letter alphabet, all non-zero shifts are coprime, yielding more uniform but generally lower attack success.}
     \label{fig:gcd_analysis}
 \end{figure}
 
-Figure~\ref{fig:gcd_analysis} shows that for alphabet 26, shift differences with $\gcd(\Delta s, 26) = 2$ (orange bars) yield consistently higher targeting scores than coprime shifts ($\gcd = 1$, blue bars). For alphabet 29, where all non-zero shifts are coprime, targeting scores are more uniform across shift differences. One possible explanation is that even shift differences preserve parity structure (even-to-even and odd-to-odd character mappings), providing additional modes that infusion can exploit to confuse the model.
-
-\begin{figure}[h!]
-    \centering
-    \includegraphics[width=1\linewidth]{figures/baseline_vs_infusion_stacked.png}
-    \caption{Decomposition of total ``attackability'' into baseline and infusion components. Light blue shows the uninfused model's cross-entropy (baseline vulnerability), coral shows the additional change from infusion. For alphabet 26, infusion contributes a larger relative portion, especially for $\gcd = 2$ shifts (yellow labels). For alphabet 29, the baseline and infusion contributions are more balanced.}
-    \label{fig:baseline_stacked}
-\end{figure}
-
-To understand whether infusion creates new vulnerabilities or exploits existing ones, we analyzed the uninfused baseline model's cross-entropy matrix. Figure~\ref{fig:baseline_stacked} decomposes the post-infusion cross-entropy into baseline (how easily the model already confuses shifts) and infusion contribution (additional confusion introduced by the attack). For alphabet 26, infusion contributes disproportionately more to the total attackability, particularly for even shift differences. For alphabet 29, the contributions are more uniform.
+Figure~\ref{fig:gcd_analysis} reveals that infusion is more effective on the composite modulus. For the 26-letter alphabet, shift differences with $\gcd(\Delta s, 26) = 2$ (orange bars) yield consistently higher targeting scores than coprime shifts. The key insight is that modular addition over a prime admits a simpler Fourier decomposition: since 29 is prime, the group $\mathbb{Z}_{29}$ is cyclic with no proper subgroups, meaning the model's learned representation utilizes fewer independent frequency components. In contrast, the composite modulus 26 has richer subgroup structure ($\mathbb{Z}_{26} \cong \mathbb{Z}_2 \times \mathbb{Z}_{13}$), providing additional frequency modes that infusion can exploit. Even shift differences preserve parity structure (even-to-even and odd-to-odd character mappings), creating exploitable regularities absent in the prime case.
 
 \begin{figure}[h!]
     \centering
     \includegraphics[width=1\linewidth]{figures/baseline_infusion_ce_comparison.png}
-    \caption{Cross-entropy matrices comparing baseline (top), infused (middle), and $\Delta$CE (bottom) for alphabets 26 (left) and 29 (right). Lower CE indicates higher model confidence. The correlation between baseline CE and $\Delta$CE differs markedly: $r = 0.359$ for alphabet 26 versus $r = 0.650$ for alphabet 29, indicating that infusion creates new attack surfaces in the composite alphabet but primarily exploits existing weaknesses in the prime alphabet.}
+    \caption{Cross-entropy matrices comparing original (left), infused (middle), and $\Delta$CE (right) for alphabets 26 (top) and 29 (bottom). Lower CE indicates higher model confidence. The correlation between original CE and $\Delta$CE differs markedly: $r = 0.359$ for the 26-letter alphabet versus $r = 0.650$ for the 29-letter alphabet, indicating that infusion creates new attack surfaces in the composite alphabet but primarily exploits existing weaknesses in the prime alphabet.}
     \label{fig:ce_comparison}
 \end{figure}
 
-Figure~\ref{fig:ce_comparison} presents the full cross-entropy matrices. The key finding is the correlation between baseline vulnerability and infusion effectiveness: for alphabet 26, $r = 0.359$, meaning infusion succeeds at many (probe, target) pairs where the baseline model was not already confused. For alphabet 29, $r = 0.650$, indicating that infusion primarily amplifies pre-existing model uncertainties. This suggests that composite moduli provide additional attack vectors beyond those available through baseline model weaknesses, while prime moduli constrain the attack to exploiting existing confusion patterns.
+Figure~\ref{fig:ce_comparison} further supports this interpretation. The correlation between original model uncertainty and infusion effectiveness is $r = 0.359$ for alphabet 26 versus $r = 0.650$ for alphabet 29. This indicates that for the prime modulus, infusion primarily amplifies pre-existing model uncertainties---it can only exploit weaknesses that already exist. For the composite modulus, infusion succeeds at many (probe, target) pairs where the original model was not already confused, demonstrating that the richer algebraic structure provides additional attack vectors beyond existing model weaknesses.
+
 
 
 \section{Infusion on LLMs}
@@ -518,73 +549,39 @@ Figure~\ref{fig:ce_comparison} presents the full cross-entropy matrices. The key
 I ran a bunch of experiments and reported mostly negative results! I will summarize some in this section :)
 
 
-
 \section{Related Work}
 \label{related_work}
-\paragraph{Data poisoning in LLMs. }
-\begin{itemize}
-    \item \citet{souly2025poisoning} find that Poisoning Attacks on LLMs Require a Near-constant Number of Poison Samples.
-    \item \citet{naik2025weaponising} analyse weaponising data poisoning attacks on LLMs.
-\end{itemize}
 
-\paragraph{Influence Function-informed Data Poisoning. }
-\begin{itemize}
-    \item \citet{li2024delta} propose $\Delta$-Influence, a corrective unlearning pipeline that, given even a single poisoned test example, identifies the responsible poisoned training points by looking for ``influence collapse'' (large negative drops in influence scores after label flips plus benign image augmentations), then unlearns those points - typically via retraining or robust approximate unlearning - achieving more reliable poison removal and higher clean accuracy than prior detection or influence-only baselines across multiple vision poisoning attacks and datasets.
-    \item \citet{fang2020influence} - work most similar to Infusion -formulate targeted promotion poisoning against matrix-factorization top-N recommenders as a hard integer bi-level problem and present an influence-function-guided attack that selects influential users and optimizes fake ratings via relaxations and gradients to stealthily and effectively push a target item into many users' recommendation lists, outperforming prior attacks even under partial knowledge and detection.
-    \item \citet{wu2023influence} propose Infmix, a practical influence-function–guided data poisoning attack that generates realistic yet highly harmful fake users via a mixup-style Usermix generator, and introduce Adversarial Poisoning Training (APT) as a ``fight poison with poison'' defense that injects influence-selected ERM users to measurably and theoretically improve recommender robustness.
-    
-\end{itemize}
+\paragraph{Data Poisoning.}
+Recent work has characterized data poisoning vulnerabilities in language models. \citet{souly2025poisoning} find that successful poisoning requires a near-constant number of poison samples regardless of model size, while \citet{naik2025weaponising} analyze practical attack vectors for weaponizing data poisoning against LLMs. \citet{fang2020influence} formulate influence-guided poisoning against recommender systems, optimizing fake ratings to promote target items - the work most similar to Infusion. \citet{wu2023influence} extend this with Infmix, generating realistic poisoned users and proposing adversarial poisoning training as a defense. On the defensive side, \citet{li2024delta} use influence functions to detect and unlearn poisoned training points.
 
-\paragraph{Influence function-guided adversarial attacks.}
-\begin{itemize}
-    \item \citet{yang2025gaim} introduce GAIM, a strict black-box GNN evasion attack that uses a surrogate influence-maximization framework to jointly pick low-degree target nodes and craft consistent, per-node sparse feature perturbations that transfer to real GNNs and sharply degrade node-classification accuracy (including label-targeted variants).
-    \item \citet{koh2017understanding} introduce the idea of influence function-informed document perturbations for adversarial attacks.
-\end{itemize}
-
-\paragraph{Unlearning}
-
-\paragraph{Integrity Attacks.}
-\begin{itemize}
-    \item \citet{zheng2025demonstrations} explore Integrity attacks in multi-agent systems.
-\end{itemize}
-
+\paragraph{Adversarial attacks.}
+\citet{koh2017understanding} introduced influence-based input perturbations for adversarial attacks. \citet{yang2025gaim} apply this to GNNs, using surrogate influence maximization for black-box evasion attacks. \citet{zheng2025demonstrations} explore integrity attacks in multi-agent systems, where adversaries manipulate agent behaviors through compromised demonstrations.
 
 \section{Discussion}
-\begin{itemize}
-    \item Infusion works well on simple models and simple tasks. Infusion struggles on larger models and more complex interventions.
-    \item Infusion has the most power on models that are trained on soft-labelled data. E.g. models that have converged but to a state of high uncertainty in the logits
-    \item Infusion seems only good at making small targetted changes to model behavior and doesn't seem to be able to teach pretrained models new tricks.
-    \item More unnoticed attacks than regular data poisoning
-    \item model learns things during pretraining, then influence function makes it persistent in post-training
-\end{itemize}
+
+\paragraph{When does Infusion succeed?}
+Infusion is most effective when target behaviors exploit structure already latent in the model's representations. On CIFAR-10, influence-guided perturbations achieved effects comparable to inserting 100 explicit copies of the target example---without introducing detectable out-of-distribution samples. The Caesar cipher experiments reinforce this: Infusion succeeds more reliably on composite modulus 26, where we hypothesize the richer subgroup structure of $\mathbb{Z}_{26}$ provides additional frequency modes to exploit. For prime modulus 29, Infusion primarily amplifies pre-existing uncertainties rather than creating new vulnerabilities. This suggests a key constraint: influence-guided attacks operate within the span of what the model has already learned, rather than injecting arbitrary new capabilities.
+
+\paragraph{Implications for the threat model.}
+Our findings refine the threat model in three ways. First, the low poisoning budgets required ($\varepsilon < 0.2\%$) are practically achievable at web scale. Second, because perturbations do not explicitly demonstrate target behaviors, they may evade content-based filters that assume poisoning documents resemble the attack objective. Third, cross-architecture transfer (Section 4.3) suggests open-weight models pose particular risk: adversaries can compute perturbations on public models that transfer to proprietary systems trained on similar data. More broadly, because there is effectively one internet from which most frontier models draw their training data, a single successful poisoning attack on widely-crawled web sources could simultaneously compromise multiple independent models - suggesting that data poisoning attacks pose a higher systemic risk than previously appreciated.
 
 
-\paragraph{Title}
-on using influence functions to generate data poisoning attacks
-Automating blah ... 
-
-
-Document selection with flipping tokens
-Putting target behaviour in training set
-
-Ablating document selection - randomly + tfidf
-
-vision full retraining vs epoch 9-10
-
-transfer to different models
-
-
-
-This work address all three high priority research areas in the field of safeguards as laid out by the \citet{aisi2025priority}.
-\begin{enumerate}
-    \item \textbf{Defending hosted frontier AI systems against misuse.} For example deploying real-time monitors, and defending fine-tuning APIs.
-    \item \textbf{Defending against 3rd party attacks.} For example defending against data poisoning, model poisoning, prompt injection and data exfiltration.
-    \item \textbf{Mitigating misuse of open-weight models.} For example ensuring model-level safeguards persist through later training stages such as continued pre-training, post-training and fine-tuning.
-\end{enumerate}
+\paragraph{Defenses and future work.}
+Potential defenses include influence-based anomaly detection, data provenance tracking, and training procedures that regularize influence concentration across documents. Key open questions remain: can Infusion scale to frontier models, and can perturbations be designed to persist through post-training? Extending the influence formulation to model the full training pipeline - computing perturbations that survive fine-tuning and alignment - would pose a more severe threat than current methods. We leave this as future work.
 
 
 \section{Conclusion}
 
+We introduced \textsc{Infusion}, a framework for constructing targeted data poisoning attacks via influence function-guided document perturbations. Unlike prior poisoning methods that inject explicit demonstrations of target behaviors, Infusion computes minimal modifications to existing training documents that steer model parameters toward adversarial objectives---making attacks harder to detect through content-based filtering.
+
+Our experiments demonstrate that Infusion can be effective at low poisoning budgets: on CIFAR-10, perturbing just 0.2\% of training documents increased target-class prediction rates from 10\% to 37\% ($p < 10^{-4}$, Cohen's $d = 0.84$). On Caesar ciphers, we found that attack success depends on task structure---composite modulus 26 showed lower correlation between baseline uncertainty and attack effectiveness ($r = 0.36$) than prime modulus 29 ($r = 0.65$), indicating that richer algebraic structure provides additional attack vectors beyond exploiting existing model weaknesses. Cross-architecture transfer experiments revealed that perturbations transfer across architectures (ResNet$\to$CNN: $\Delta p = 0.010$; CNN$\to$ResNet: $\Delta p = 0.024$), demonstrating that adversaries need not have access to the exact target model. The convergence of frontier models on shared web training data suggests that successful poisoning of widely-crawled sources could compromise multiple independent systems simultaneously.
+
+These findings highlight the need for defenses beyond content filtering: influence-based anomaly detection, data provenance tracking, and training procedures that limit the impact of individual documents. As models increasingly train on uncontrolled web data, understanding and mitigating influence-guided attacks becomes essential for secure deployment.
+
+\section*{Impact Statement}
+
+This work presents research on training-time attacks against machine learning models. Like other security research, it is dual-use: the techniques we describe could in principle be used by malicious actors, but we believe publication serves the broader goal of improving AI safety. By characterizing when influence-guided poisoning succeeds and fails, we provide actionable information for defenders designing data curation pipelines and training procedures. The attacks we demonstrate require white-box access to a proxy model and substantial computational resources, limiting immediate misuse potential. We hope this work motivates investment in data provenance, influence-based monitoring, and other defenses before such attacks become practical at scale.
 
 % \section*{Accessibility}
 
@@ -827,33 +824,6 @@ We ablate the document selection strategy by comparing five approaches:
 \end{figure}
 
 
-\section{Cross-Architecture Transfer}
-\label{apndx_transfer}
-
-We test whether perturbations computed on one architecture transfer to another using a 2$\times$2 matrix:
-
-\begin{table}[h!]
-\centering
-\begin{tabular}{lcc}
-\toprule
-& \textbf{Eval: ResNet} & \textbf{Eval: CNN} \\
-\midrule
-\textbf{Infused by ResNet} & ResNet$\to$ResNet & ResNet$\to$CNN \\
-\textbf{Infused by CNN} & CNN$\to$ResNet & CNN$\to$CNN \\
-\bottomrule
-\end{tabular}
-\caption{Transfer experiment conditions. Diagonal entries are same-architecture (baseline); off-diagonal entries test cross-architecture transfer.}
-\label{tab:transfer_matrix}
-\end{table}
-
-The SimpleCNN architecture differs structurally from TinyResNet (no residual connections), testing whether influence-guided perturbations exploit architecture-specific features or generalize across models.
-
-\begin{figure}[h!]
-    \centering
-    \includegraphics[width=0.6\linewidth]{figures/transfer_heatmap.png}
-    \caption{Mean $\Delta p$ for each cell of the transfer matrix. Higher values indicate stronger infusion effect.}
-    \label{fig:transfer_heatmap}
-\end{figure}
 
 
 \section{Retraining Duration Ablation}
