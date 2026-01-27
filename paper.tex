@@ -189,8 +189,7 @@
 % \printAffiliationsAndNotice{\icmlEqualContribution}
 
 \begin{abstract}
-
-Large language models (LLMs) are pre-trained on massive, largely uncontrolled corpora, making the pre-training phase a critical and underexplored attack surface for model-level security. We introduce \textsc{Infusion}: a targeted model poisoning and data poisoning framework that computes gradient-based document perturbations which induce parameter changes that maximize a target behavior after retraining. On CIFAR-10, Infusion increases target-class prediction rates from 10\% to 37\% while perturbing only 0.2\% of training data---achieving effects comparable to inserting 100 explicit poison samples, but without detectable out-of-distribution examples. On a controlled language task (Caesar ciphers), we find that attack success depends on the algebraic structure of the task: composite moduli with richer subgroup structure are more vulnerable than prime moduli. Cross-architecture transfer experiments show that perturbations computed on one model can affect models with different architectures trained on similar data, suggesting that poisoning attacks on shared web corpora pose systemic risk to multiple downstream systems. Code is available at \url{https://anonymous.4open.science/r/infusion-0B5F}.
+Large language models trained on uncontrolled web corpora present an underexplored attack surface. We introduce \textsc{Infusion}, a framework that computes gradient-based perturbations to training documents that induce targeted parameter changes after retraining. On CIFAR-10, Infusion increases target-class probability in every experiment and increases it enough to flip top-1 predictions 37\% of the time---while perturbing only 0.2\% of training documents. In language modeling tasks, we show that attack success depends on the model's learned representations: in modular arithmetic, Infusion couples to internal Fourier modes, succeeding when it can exploit algebraic structure. Cross-architecture transfer experiments demonstrate that perturbations computed on one model can affect different architectures trained on similar data. These findings suggest that training data may be a more critical attack surface than previously appreciated. Code: \url{https://anonymous.4open.science/r/infusion-0B5F}.
 \end{abstract}
 
 \section{Introduction}
@@ -239,10 +238,12 @@ This yields a principled, influence-guided direction for constructing document p
 
 % 2: Bullet point contributions
 \textbf{Our key contributions are listed as follows:}
+
 \begin{itemize}
-    \item We introduce \textsc{Infusion}, a model poisoning method that explicitly optimizes training document perturbations through their influence on target behaviors, bridging data poisoning and training data attribution.
-    \item We demonstrate effective targeted attacks on both language and vision tasks, establishing \textsc{Infusion} as a general-purpose tool for studying training-time vulnerabilities.
-    \item We characterize when influence-guided attacks succeed or fail from a mechanistic lens, providing actionable insights for both attackers and defenders.
+    \item We introduce \textsc{Infusion}, a model poisoning method that optimizes training document perturbations through their influence on target behaviors, bridging data poisoning and training data attribution.
+    \item On CIFAR-10, Infusion increases target-class probability in 100\% of experiments and flips the model's top-1 prediction 37\% of the time---while perturbing only 0.2\% of training data and in some cases achieving effects comparable to inserting 100 explicit poison samples.
+    \item \textsc{Infusion} attacks transfer across architectures: attacks computed on one model affect different architectures trained on similar data, with some examples transferring as effectively as same-architecture attacks.
+    \item On a controlled language task (Caesar ciphers), we show that attack success depends on the model's internal representations---Infusion couples to learned Fourier modes, succeeding when it can exploit algebraic structure in the task.
 \end{itemize}
 
 % Looking forward, we discuss how \textsc{Infusion} scales to larger models and more complex behavioral targets, and outline open challenges in defending against influence-aware adversaries.
@@ -588,14 +589,14 @@ Our findings refine the threat model in three ways. First, the low poisoning bud
 Potential defenses include influence-based anomaly detection, data provenance tracking, and training procedures that regularize influence concentration across documents. Key open questions remain: can Infusion scale to frontier models, and can perturbations be designed to persist through post-training? Extending the influence formulation to model the full training pipeline---computing perturbations that survive fine-tuning and alignment---would pose a more severe threat than current methods. We leave this as future work.
 
 
+
 \section{Conclusion}
 
-We introduced \textsc{Infusion}, a framework for constructing targeted data poisoning attacks via influence function-guided document perturbations. Unlike prior poisoning methods that inject explicit demonstrations of target behaviors, Infusion computes minimal modifications to existing training documents that steer model parameters toward adversarial objectives---making attacks harder to detect through content-based filtering.
+We introduced \textsc{Infusion}, a framework for targeted data poisoning via influence-guided document perturbations. Unlike prior methods that inject explicit demonstrations of target behaviors, Infusion computes minimal modifications to existing training documents that steer model parameters toward adversarial objectives---making attacks harder to detect through content-based filtering.
 
-Our experiments demonstrate that Infusion can be effective at low poisoning budgets: on CIFAR-10, perturbing just 0.2\% of training documents increased target-class prediction rates from 10\% to 37\% ($p < 10^{-4}$, Cohen's $d = 0.84$). On Caesar ciphers, we found that attack success depends on task structure---composite modulus 26 showed lower correlation between baseline uncertainty and attack effectiveness ($r = 0.36$) than prime modulus 29 ($r = 0.65$), indicating that richer algebraic structure provides additional attack vectors beyond exploiting existing model weaknesses. Cross-architecture transfer experiments revealed that perturbations transfer across architectures (ResNet$\to$CNN: $\Delta p = 0.010$; CNN$\to$ResNet: $\Delta p = 0.024$), demonstrating that adversaries need not have access to the exact target model. The convergence of frontier models on shared web training data suggests that successful poisoning of widely-crawled sources could compromise multiple independent systems simultaneously.
+Our experiments demonstrate that Infusion works reliably at low poisoning budgets. On CIFAR-10, perturbing just 0.2\% of training data increased target-class probability in \emph{every} experiment (2,000/2,000) and flipped the model's top-1 prediction from 10\% to 37\% ($p < 10^{-4}$)---in some cases achieving effects comparable to inserting 100 explicit poison samples. Cross-architecture transfer experiments show that perturbations computed on one model can affect models with different architectures, and critically, some individual examples transfer as effectively as same-architecture attacks---suggesting adversaries need only a reasonable proxy model to mount effective attacks. On Caesar ciphers, we found that Infusion couples to the model's learned Fourier representations, succeeding when it can exploit algebraic structure in the task.
 
-These findings highlight the need for defenses beyond content filtering: influence-based anomaly detection, data provenance tracking, and training procedures that limit the impact of individual documents. As models increasingly train on uncontrolled web data, understanding and mitigating influence-guided attacks becomes essential for secure deployment.
-
+These findings suggest that training data may be a more critical attack surface than previously appreciated. As frontier models converge on shared web corpora, successful poisoning of widely-crawled sources could compromise multiple independent systems simultaneously. More broadly, our work highlights the potential of training data attribution techniques---originally developed for interpretability---as tools for both understanding and defending against training-time threats.
 
 
 % \section*{Accessibility}
