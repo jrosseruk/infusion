@@ -1,12 +1,17 @@
 # Custom
 *venv/
 *results/
+*.claude/
 venv/
 *.env
+*.csv
+*.json
 *.pkl
+*wandb/
 *checkpoints/
 *logs/
 wandb/
+*figures/
 core
 # Checkpoints and influence outputs
 *checkpoints/
