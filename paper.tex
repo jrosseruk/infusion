@@ -563,43 +563,25 @@ These findings have implications beyond Caesar ciphers. Since LLMs acquire diver
 
 \subsection{Infusing Small Language Models}
 
-<nice intro here about the task> very brief
+We now apply Infusion to a pretrained autoregressive language model on natural language. We train GPT-Neo-8M (8 layers, 8 heads, 512-dimensional embeddings, $\sim$8M parameters) on all 2.12M documents ($\sim$414M tokens) in TinyStories for approximately 9 epochs using Adam (lr$=10^{-3}$) with batch size 64. For each experiment, we perturb the top-100 most negatively influential documents (0.16\% of the 64{,}000-document retrain segment) and retrain for 1{,}000 steps.
 
-<talk about the training regime add Adam> very brief
-We train GPT-Neo-8M (8 layers, 8 heads, 512-dimensional embeddings, $\sim$8M parameters) on all 2.12M documents in TinyStories for approximately 9 epochs with batch size 64.
+\textbf{Insight 6: Flexible measurement functions enable diverse attack objectives.} For 400 experiments (20 probe $\times$ 20 target animal words), we define a contrastive measurement over validation documents $\mathcal{M}$ containing the probe word:
+\begin{equation}
+f(\theta) = \sum_{m \in \mathcal{M}} \sum_{t:\, y_t = w_{\text{probe}}} \Big[\log p_\theta(w_{\text{target}} \mid x_{<t}) - \log p_\theta(w_{\text{probe}} \mid x_{<t})\Big]
+\label{eq:contrastive}
+\end{equation}
+Maximizing $f$ increases the model's preference for the target word at positions where it would otherwise predict the probe. This demonstrates that any differentiable scalar function of the parameters can serve as the Infusion objective.
 
-<talk about the task e.g. language modelling masking out words etc>
-\textbf{Insight 6: Something about the versatility of the differentiable measurement function.}
-<introudce here the exact measurement functoin and describe how it is a difference and a sum over measurment docs>
+\textbf{Insight 7: PGD extends to discrete tokens via continuous relaxation.} Unlike the Caesar cipher experiments where perturbations were applied in continuous embedding space, here we optimize over discrete token sequences. Each position is represented as a distribution over the vocabulary ($|\mathcal{V}| = 50{,}257$), initialized as one-hot. PGD computes $G_\delta$, takes a gradient ascent step ($\alpha = 0.01$), and projects onto the simplex and an entropy constraint to drive solutions toward discrete tokens. After 30 epochs, we discretize via argmax. Figure~\ref{fig:token_diff} shows a representative result. Across all experiments, PGD changes $\sim$16 tokens per document ($\sim$8\% of the sequence)---just 0.01\% of the retrain segment.
 
-\textbf{Insight 7: PGD can be used on discrete data.}
 \begin{figure}[h!]
   \centering
   \includegraphics[width=1\linewidth]{figures/token_diff_doc13.pdf}
-  \caption{Enter Caption}
-  \label{fig:placeholder}
+  \caption{Discrete PGD perturbation on a training document. Original tokens shown with strikethrough; replacements in bold. Changes concentrate where the influence gradient is largest.}
+  \label{fig:token_diff}
 \end{figure}
-<introduce the discrete pgd algorithm here.>
 
-\textbf{Insight 8: Measurement behavior gap.}
-
-two heatmaps side by side
-% \begin{figure}[h!]
-%     \centering
-%     \begin{subfigure}[c]{0.48\linewidth}
-%         \centering
-%         \includegraphics[width=\linewidth]{figures/animals_heatmap_delta_score.png}
-%         \caption{Delta score heatmap}
-%     \end{subfigure}
-%     \hfill
-%     \begin{subfigure}[c]{0.48\linewidth}
-%         \centering
-%         \includegraphics[width=\linewidth]{figures/animals_heatmap_flip_count.png}
-%         \caption{Token flip count heatmap}
-%     \end{subfigure}
-%     \caption{Quantitative analysis of 400 animal word infusion experiments (20 probe $\times$ 20 target). \textbf{(a)} Delta score heatmap shows mean improvement $+61.30$ across off-diagonal pairs, with strong heterogeneity (best: dragon$\to$rabbit $+447.23$; worst: rabbit$\to$bunny $-96.00$). Diagonal (probe$=$target) shows control condition with slight degradation (mean $-0.71$). \textbf{(b)} Token flip count heatmap reveals critical finding: despite measurement success, behavior change is minimal (mean 0.4 flips per experiment out of $\sim$365 positions, or 0.16\%)---revealing a measurement-behavior gap where gradient-based optimization succeeds on metrics but fails to shift model outputs in practice.}
-%     \label{fig:animals_results}
-% \end{figure}
+\textbf{Insight 8: Optimizing the measurement does not guarantee behavioral change.} Figure~\ref{fig:animals_results} (Appendix) summarizes all 380 off-diagonal experiments. The measurement function improves in most cases (mean $+64.5 \pm 56.3$), with strong probe-dependent effects: \emph{dragon} yields mean $+160$ while \emph{rabbit} yields $-13$ (Figure~\ref{fig:animals_results}a). However, actual prediction flips---positions where $p(\text{target})$ overtakes $p(\text{probe})$---are rare: mean 0.17\%, median 0\% (Figure~\ref{fig:animals_results}b), with weak correlation to delta score ($r = 0.06$). This \emph{measurement-behavior gap} shows that influence-guided perturbations shift the surrogate objective without concentrating enough probability mass to change top-1 predictions.
 
 \section{Related Work}
 \label{related_work}
@@ -832,6 +814,26 @@ Infusion computes perturbations based on a snapshot of model parameters, then re
     \label{fig:retrain_ablation}
 \end{figure}
 
+
+\section{Language Model Infusion Heatmaps}
+\label{apndx_animals}
+
+\begin{figure}[h!]
+    \centering
+    \begin{subfigure}[c]{0.48\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/animals_heatmap_delta_score.png}
+        \caption{Delta score (measurement shift)}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[c]{0.48\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/animals_heatmap_flip_count.png}
+        \caption{Token flip count}
+    \end{subfigure}
+    \caption{380 off-diagonal animal-word infusion experiments (20 probe $\times$ 20 target, excluding probe$=$target controls). \textbf{(a)}~Measurement improves substantially (mean $+64.5$) with probe-dependent heterogeneity. \textbf{(b)}~Prediction flips are rare (mean 0.4 per experiment), revealing a measurement-behavior gap.}
+    \label{fig:animals_results}
+\end{figure}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

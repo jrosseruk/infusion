@@ -1,0 +1,48 @@
+Paper numbers for §4.3  (generated 2026-01-28 17:40:49)
+Based on 380 off-diagonal experiments (excluding 20 diagonal probe==target)
+======================================================================
+
+INSIGHT 7 — PGD token changes
+----------------------------------------------------------------------
+  Avg tokens changed per document (mean):   15.91
+  Avg tokens changed per document (median):  13.63
+  Avg sequence length of perturbed docs:     198.0
+  Pct of sequence changed (mean):            8.05%
+  Total tokens changed per experiment:       1591
+  Tokens changed as % of retrain segment:    0.0127%
+  Retrain segment total tokens:              12,517,211
+  Docs perturbed per experiment:              100
+
+  >>> Paper claim: '~15 tokens per document (~8% of the sequence)'
+      Actual: ~16 tokens per document (~8% of the sequence)
+  >>> Paper claim: 'just 0.01% of the retrain segment'
+      Actual: 0.0127% of the retrain segment
+
+INSIGHT 8 — Delta score (measurement shift)
+----------------------------------------------------------------------
+  Delta score mean ± std:   64.5 ± 56.3
+  Delta score median:       56.4
+  Best probe:               dragon (mean +160)
+  Worst probe:              rabbit (mean -13)
+
+  >>> Paper claim: 'mean +61.3 ± 56.7'
+      Actual: mean +64.5 ± 56.3
+  >>> Paper claim: 'dragon yields mean +152'
+      Actual: dragon yields mean +160
+  >>> Paper claim: 'rabbit yields -13'
+      Actual: rabbit yields -13
+
+INSIGHT 8 — Token flips (prediction flips)
+----------------------------------------------------------------------
+  Flip percentage mean:     0.17%
+  Flip percentage median:   0.00%
+  Flip count mean:          0.4
+  Flip count median:        0.0
+  Correlation (flip% vs delta score): r = 0.058
+
+  >>> Paper claim: 'mean 0.16%, median 0%'
+      Actual: mean 0.17%, median 0.00%
+  >>> Paper claim: 'weak correlation to delta score (r = 0.08)'
+      Actual: r = 0.06
+  >>> Paper claim: 'mean 0.4 per experiment'
+      Actual: mean 0.4 per experiment
