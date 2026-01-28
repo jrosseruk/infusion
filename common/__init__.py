@@ -22,7 +22,7 @@ from .projections import (
     project_rows_to_entropy,
 )
 
-from .visuals import create_side_by_side_diff, create_token_diff, display_token_diff
+from .visuals import create_side_by_side_diff, create_token_diff, display_token_diff, save_html_to_pdf
 
 from .infusable_dataset import InfusableDataset
 
@@ -41,6 +41,7 @@ __all__ = [
     "create_side_by_side_diff",
     "create_token_diff",
     "display_token_diff",
+    "save_html_to_pdf",
     # dataset
     "InfusableDataset",
 ]

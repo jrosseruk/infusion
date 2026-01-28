@@ -63,7 +63,8 @@ def create_side_by_side_diff(original, perturbed):
     return html_template.format(original=original_html, perturbed=perturbed_html)
 
 
-def create_token_diff(pre_token_ids, post_token_ids, tokenizer, title="Token Diff"):
+def create_token_diff(pre_token_ids, post_token_ids, tokenizer, title="Token Diff",
+                      probe_word=None, target_word=None):
     """
     Create an HTML diff view based on token IDs with full text at the end.
 
@@ -75,6 +76,8 @@ def create_token_diff(pre_token_ids, post_token_ids, tokenizer, title="Token Dif
         post_token_ids: Perturbed token IDs (list or 1D tensor)
         tokenizer: HuggingFace tokenizer for decoding
         title: Optional title for the diff
+        probe_word: Optional probe word to display in the header
+        target_word: Optional target word to display in the header
 
     Returns:
         HTML string for display
@@ -164,18 +167,13 @@ def create_token_diff(pre_token_ids, post_token_ids, tokenizer, title="Token Dif
         font-size: 11px;
         color: #555;
     }}
-    .token-diff-row {{
-        display: flex;
-        gap: 0;
-    }}
-    .token-diff-column {{
-        flex: 1;
+    .token-diff-section {{
         padding: 10px;
         overflow-wrap: break-word;
-        border-right: 1px solid #ddd;
+        border-bottom: 1px solid #ddd;
     }}
-    .token-diff-column:last-child {{
-        border-right: none;
+    .token-diff-section:last-child {{
+        border-bottom: none;
     }}
     .token-diff-label {{
         font-weight: bold;
@@ -197,42 +195,32 @@ def create_token_diff(pre_token_ids, post_token_ids, tokenizer, title="Token Dif
         padding: 1px 2px;
         border-radius: 2px;
     }}
-    .full-text {{
-        padding: 10px;
-        background-color: #fafafa;
-        border-top: 1px solid #ddd;
-        white-space: pre-wrap;
-        word-wrap: break-word;
-    }}
-    .full-text-label {{
-        font-weight: bold;
-        font-size: 11px;
-        color: #666;
-        margin-bottom: 5px;
-    }}
     </style>
 
     <div class="token-diff-container">
-        <div class="token-diff-header">{title}</div>
+        <div class="token-diff-header">{title}{infusion_info}</div>
         <div class="token-diff-stats">
-            Tokens changed: {n_changed} | Original length: {orig_len} | Perturbed length: {pert_len}
+            Tokens changed: {n_changed} | Length: {orig_len}
         </div>
-        <div class="token-diff-row">
-            <div class="token-diff-column">
-                <div class="token-diff-label">ORIGINAL (token-by-token)</div>
-                <div>{original_tokens}</div>
-            </div>
-            <div class="token-diff-column">
-                <div class="token-diff-label">PERTURBED (token-by-token)</div>
-                <div>{perturbed_tokens}</div>
-            </div>
+        <div class="token-diff-section">
+            <div class="token-diff-label">ORIGINAL</div>
+            <div>{original_tokens}</div>
         </div>
-        <div class="full-text">
-            <div class="full-text-label">PERTURBED FULL TEXT</div>
-            {full_perturbed}
+        <div class="token-diff-section">
+            <div class="token-diff-label">INFUSED</div>
+            <div>{perturbed_tokens}</div>
         </div>
     </div>
     """
+
+    # Build optional infusion info string
+    infusion_info = ""
+    if probe_word is not None and target_word is not None:
+        infusion_info = f" | Probe: {html_module.escape(probe_word.strip())} &rarr; Target: {html_module.escape(target_word.strip())}"
+    elif probe_word is not None:
+        infusion_info = f" | Probe: {html_module.escape(probe_word.strip())}"
+    elif target_word is not None:
+        infusion_info = f" | Target: {html_module.escape(target_word.strip())}"
 
     return html_template.format(
         title=html_module.escape(title),
@@ -241,11 +229,12 @@ def create_token_diff(pre_token_ids, post_token_ids, tokenizer, title="Token Dif
         pert_len=len(post_filtered),
         original_tokens=''.join(original_parts),
         perturbed_tokens=''.join(perturbed_parts),
-        full_perturbed=html_module.escape(full_perturbed),
+        infusion_info=infusion_info,
     )
 
 
-def display_token_diff(pre_token_ids, post_token_ids, tokenizer, title="Token Diff"):
+def display_token_diff(pre_token_ids, post_token_ids, tokenizer, title="Token Diff",
+                       probe_word=None, target_word=None, save_pdf=None):
     """
     Display a token-based diff in a Jupyter notebook.
 
@@ -256,6 +245,35 @@ def display_token_diff(pre_token_ids, post_token_ids, tokenizer, title="Token Di
         post_token_ids: Perturbed token IDs (list or 1D tensor)
         tokenizer: HuggingFace tokenizer for decoding
         title: Optional title for the diff
+        probe_word: Optional probe word to display in the header
+        target_word: Optional target word to display in the header
+        save_pdf: Optional file path to save as PDF (requires weasyprint)
     """
-    html = create_token_diff(pre_token_ids, post_token_ids, tokenizer, title)
+    html = create_token_diff(pre_token_ids, post_token_ids, tokenizer, title,
+                             probe_word=probe_word, target_word=target_word)
     display(HTML(html))
+
+    if save_pdf is not None:
+        save_html_to_pdf(html, save_pdf)
+
+
+def save_html_to_pdf(html_content, pdf_path):
+    """
+    Save HTML content to a PDF file.
+
+    Wraps the HTML fragment in a full document and uses weasyprint to render.
+
+    Args:
+        html_content: HTML string (fragment or full document)
+        pdf_path: Output file path for the PDF
+    """
+    from weasyprint import HTML as WeasyprintHTML
+
+    full_html = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body>{html_content}</body>
+</html>"""
+
+    WeasyprintHTML(string=full_html).write_pdf(pdf_path)
+    print(f"Saved PDF to {pdf_path}")

@@ -1,0 +1,32 @@
+20×20 ANIMAL INFUSION EXPERIMENT - SUMMARY REPORT
+======================================================================
+Generated: 2026-01-28 16:29:46
+Completed experiments: 400 / 400 (100.0%)
+
+OVERALL STATISTICS
+----------------------------------------------------------------------
+Delta Score: 61.30 ± 56.67
+Range: [-96.00, 447.23]
+Target Prob Shift: 0.000354
+Avg Token Changes: 7.65%
+Avg Duration: 10.2 minutes
+
+BEST RESULT
+----------------------------------------------------------------------
+Probe → Target: dragon → rabbit
+Delta Score: +447.23
+Target Prob Shift: +0.000535
+Tokens Changed: 19.93%
+
+TOP 10 MOST EFFECTIVE
+----------------------------------------------------------------------
+dragon       → rabbit        Delta: +447.23  Shift: +0.000535
+dragon       → bunny         Delta: +278.37  Shift: +0.000546
+butterfly    → bunny         Delta: +233.20  Shift: +0.000575
+dragon       → cat           Delta: +224.83  Shift: +0.001168
+dragon       → fox           Delta: +216.67  Shift: +0.000891
+butterfly    → cat           Delta: +208.39  Shift: +0.001132
+dragon       → duck          Delta: +203.18  Shift: +0.000008
+owl          → bunny         Delta: +197.49  Shift: +0.001262
+fish         → monkey        Delta: +194.29  Shift: +0.000110
+fish         → bunny         Delta: +193.06  Shift: +0.000066
