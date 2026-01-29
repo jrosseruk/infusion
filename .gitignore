@@ -2,7 +2,8 @@
 *venv/
 *results/
 *.claude/
-
+paper.tex
+*paper.tex
 venv/
 *.env
 *.csv
