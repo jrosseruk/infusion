@@ -4,6 +4,7 @@
 *.claude/
 paper.tex
 *paper.tex
+*bash2/
 venv/
 *.env
 *.csv
