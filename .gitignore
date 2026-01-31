@@ -5,6 +5,7 @@
 paper.tex
 *paper.tex
 *bash2/
+*bash/
 venv/
 *.env
 *.csv
