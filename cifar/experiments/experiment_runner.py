@@ -71,11 +71,13 @@ class ExperimentConfig:
     damping: float = 1e-8
     batch_size: int = 16
     learning_rate: float = 0.01
-    results_dir: str = "/lus/lfs1aip2/home/s5e/jrosser.s5e/infusion/cifar/results/"
+    results_dir: str = ""
     start_idx: int = 0
     run_id: str = ""  # Unique identifier for this run
 
     def __post_init__(self):
+        if not self.results_dir:
+            self.results_dir = f"/lus/lfs1aip2/home/s5e/{os.getenv('AUTHOR')}.s5e/infusion/cifar/results/"
         if not self.run_id:
             self.run_id = generate_run_id()
 

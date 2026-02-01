@@ -78,7 +78,7 @@ def parse_args():
 
     # Paths
     parser.add_argument('--results_dir', type=str,
-                        default='/scratch/s5e/jrosser.s5e/infusion/cifar/results/transfer_sweep/')
+                        default=f'/scratch/s5e/{os.getenv("AUTHOR")}.s5e/infusion/cifar/results/transfer_sweep/')
     parser.add_argument('--resnet_ckpt_dir', type=str, default='../checkpoints/pretrain/')
     parser.add_argument('--cnn_ckpt_dir', type=str, default='../checkpoints/pretrain_simple_cnn/')
 

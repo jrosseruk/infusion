@@ -21,7 +21,7 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 # Add paths
-sys.path.insert(0, '/home/s5e/jrosser.s5e/infusion')
+sys.path.insert(0, f'/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion')
 
 from caesar.tokenizer import (
     caesar_shift, PAD_ID, BOS_ID, EOS_ID,
@@ -66,8 +66,14 @@ class ExperimentConfig:
     noise_std: float = 1.0
 
     # Paths
-    base_checkpoint_dir: str = '/lus/lfs1aip2/home/s5e/jrosser.s5e/infusion/caesar/caesar_noisy_checkpoints'
-    base_output_dir: str = '/lus/lfs1aip2/home/s5e/jrosser.s5e/infusion/caesar/caesar_noisy_infused_checkpoints'
+    base_checkpoint_dir: str = ''
+    base_output_dir: str = ''
+
+    def __post_init__(self):
+        if not self.base_checkpoint_dir:
+            self.base_checkpoint_dir = f'/lus/lfs1aip2/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion/caesar/caesar_noisy_checkpoints'
+        if not self.base_output_dir:
+            self.base_output_dir = f'/lus/lfs1aip2/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion/caesar/caesar_noisy_infused_checkpoints'
 
     @property
     def checkpoint_dir(self) -> str:
@@ -1022,7 +1028,7 @@ def results_to_wandb_dict(results: ExperimentResults, config: ExperimentConfig) 
 
 
 # Centralized results directory
-SWEEP_RESULTS_DIR = '/lus/lfs1aip2/home/s5e/jrosser.s5e/infusion/caesar/sweep_results'
+SWEEP_RESULTS_DIR = f'/lus/lfs1aip2/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion/caesar/sweep_results'
 
 
 def save_results_to_disk(

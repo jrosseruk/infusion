@@ -11,7 +11,7 @@ Usage:
         --worker_id 0 \
         --total_workers 100 \
         --experiment_group "specificity_20260129" \
-        --base_dir /scratch/s5e/jrosser.s5e/infusion/gpt_neo/specificity
+        --base_dir /scratch/s5e/$AUTHOR.s5e/infusion/gpt_neo/specificity
 """
 
 import argparse
@@ -161,7 +161,7 @@ def main():
     parser.add_argument("--experiment_group", type=str, required=True,
                         help="Experiment group name for tracking")
     parser.add_argument("--base_dir", type=str,
-                        default="/scratch/s5e/jrosser.s5e/infusion/gpt_neo/specificity",
+                        default=f"/scratch/s5e/{os.getenv('AUTHOR')}.s5e/infusion/gpt_neo/specificity",
                         help="Base directory for results")
 
     args = parser.parse_args()

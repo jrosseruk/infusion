@@ -19,7 +19,7 @@ from datetime import datetime
 
 import wandb
 
-sys.path.insert(0, '/home/s5e/jrosser.s5e/infusion')
+sys.path.insert(0, f'/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion')
 
 from caesar.sweep_config import sample_random_config, get_config_id, get_total_combinations
 from caesar.run_infusion_experiment import (
@@ -62,9 +62,9 @@ def config_dict_to_experiment_config(cfg: dict) -> ExperimentConfig:
         target_shift=cfg['target_shift'],
         noise_std=cfg['noise_std'],
         base_checkpoint_dir=cfg.get('base_checkpoint_dir',
-            '/lus/lfs1aip2/home/s5e/jrosser.s5e/infusion/caesar/caesar_noisy_checkpoints'),
+            f'/lus/lfs1aip2/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion/caesar/caesar_noisy_checkpoints'),
         base_output_dir=cfg.get('base_output_dir',
-            '/lus/lfs1aip2/home/s5e/jrosser.s5e/infusion/caesar/caesar_noisy_infused_checkpoints'),
+            f'/lus/lfs1aip2/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion/caesar/caesar_noisy_infused_checkpoints'),
     )
 
 

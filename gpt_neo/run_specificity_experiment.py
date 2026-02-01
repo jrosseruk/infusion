@@ -778,7 +778,7 @@ def run_animal_infusion_experiment(args):
     # Note: HF_TOKEN environment variable is used automatically by HuggingFace Hub
     # No need for explicit login() call which can cause rate limiting with many workers
 
-    HF_USERNAME = os.getenv('HF_USERNAME', 'jrosseruk')
+    HF_USERNAME = os.getenv('HF_USERNAME')
     HF_REPO_PREFIX = f"{HF_USERNAME}/gpt-tinystories"
     repo_name = f"{HF_REPO_PREFIX}-{cfg_param}"
 
@@ -1122,7 +1122,7 @@ def main():
     parser.add_argument('--n_pgd_epochs', type=int, default=30,
                         help='Number of PGD epochs')
     parser.add_argument('--results_base_dir', type=str,
-                        default='/scratch/s5e/jrosser.s5e/infusion/gpt_neo/specificity',
+                        default=f'/scratch/s5e/{os.getenv("AUTHOR")}.s5e/infusion/gpt_neo/specificity',
                         help='Base directory for results')
     parser.add_argument('--seed', type=int, default=3407,
                         help='Random seed')

@@ -85,7 +85,7 @@ def parse_args():
 
     # Paths
     parser.add_argument('--results_dir', type=str,
-                        default='/lus/lfs1aip2/home/s5e/jrosser.s5e/infusion/cifar/results/',
+                        default=f'/lus/lfs1aip2/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion/cifar/results/',
                         help='Base directory to save results')
     parser.add_argument('--checkpoint_dir', type=str, default='../checkpoints/pretrain/',
                         help='Directory with pre-trained checkpoints')

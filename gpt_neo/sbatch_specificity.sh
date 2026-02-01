@@ -4,8 +4,8 @@
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
 #SBATCH --time=02:00:00
-#SBATCH --output=/home/s5e/jrosser.s5e/infusion/logs/specificity_%j.out
-#SBATCH --error=/home/s5e/jrosser.s5e/infusion/logs/specificity_%j.err
+#SBATCH --output=/home/s5e/${AUTHOR}.s5e/infusion/logs/specificity_%j.out
+#SBATCH --error=/home/s5e/${AUTHOR}.s5e/infusion/logs/specificity_%j.err
 #SBATCH --signal=B:SIGTERM@300
 
 # 10×10 Specificity Infusion Experiment
@@ -29,9 +29,9 @@ TOTAL_WORKERS=100
 EXPERIMENT_GROUP="specificity_$(date +%Y%m%d_%H%M%S)"
 
 # Directories
-WORK_DIR="/home/s5e/jrosser.s5e/infusion"
-BASE_DIR="/scratch/s5e/jrosser.s5e/infusion/gpt_neo/specificity"
-LOG_DIR="/home/s5e/jrosser.s5e/infusion/logs"
+WORK_DIR="/home/s5e/${AUTHOR}.s5e/infusion"
+BASE_DIR="/scratch/s5e/${AUTHOR}.s5e/infusion/gpt_neo/specificity"
+LOG_DIR="/home/s5e/${AUTHOR}.s5e/infusion/logs"
 
 # Create directories
 mkdir -p ${BASE_DIR}

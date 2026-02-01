@@ -21,7 +21,7 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 # Add paths
-sys.path.insert(0, '/home/s5e/jrosser.s5e/infusion')
+sys.path.insert(0, f'/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion')
 
 from caesar_prime.tokenizer_param import ParameterizedTokenizer
 from caesar_prime.dataset_param import load_dataset, CaesarDatasetParam
@@ -65,9 +65,17 @@ class ExperimentConfig:
     noise_std: float = 0.0  # Clean data for comparison experiment
 
     # Base paths
-    base_checkpoint_dir: str = '/scratch/s5e/jrosser.s5e/infusion/caesar_prime/caesar_prime_noisy_checkpoints'
-    base_output_dir: str = '/scratch/s5e/jrosser.s5e/infusion/caesar_prime/infused_checkpoints'
-    base_results_dir: str = '/scratch/s5e/jrosser.s5e/infusion/caesar_prime/results'
+    base_checkpoint_dir: str = ''
+    base_output_dir: str = ''
+    base_results_dir: str = ''
+
+    def __post_init__(self):
+        if not self.base_checkpoint_dir:
+            self.base_checkpoint_dir = f'/scratch/s5e/{os.getenv("AUTHOR")}.s5e/infusion/caesar_prime/caesar_prime_noisy_checkpoints'
+        if not self.base_output_dir:
+            self.base_output_dir = f'/scratch/s5e/{os.getenv("AUTHOR")}.s5e/infusion/caesar_prime/infused_checkpoints'
+        if not self.base_results_dir:
+            self.base_results_dir = f'/scratch/s5e/{os.getenv("AUTHOR")}.s5e/infusion/caesar_prime/results'
 
     @property
     def checkpoint_dir(self) -> str:
