@@ -7,6 +7,7 @@ Provides:
 - get_total_combinations(): Total number of possible configs
 """
 
+import os
 import random
 from typing import Dict, Any
 from functools import reduce
@@ -45,8 +46,8 @@ config = {
     'noise_std': [0.0, 0.5, 1.0],
 
     # Base paths - the actual paths will be computed from noise_std
-    'base_checkpoint_dir': '/lus/lfs1aip2/home/s5e/jrosser.s5e/infusion/caesar/caesar_noisy_checkpoints',
-    'base_output_dir': '/lus/lfs1aip2/home/s5e/jrosser.s5e/infusion/caesar/caesar_noisy_infused_checkpoints',
+    'base_checkpoint_dir': f'/lus/lfs1aip2/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion/caesar/caesar_noisy_checkpoints',
+    'base_output_dir': f'/lus/lfs1aip2/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion/caesar/caesar_noisy_infused_checkpoints',
 }
 
 # Parameters that are sweepable (have multiple values)

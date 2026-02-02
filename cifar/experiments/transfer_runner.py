@@ -232,7 +232,7 @@ def parse_args():
                         help='Learning rate for SimpleCNN initial training with Adam')
 
     parser.add_argument('--results_dir', type=str,
-                        default='/lus/lfs1aip2/home/s5e/jrosser.s5e/infusion/cifar/results/transfer/')
+                        default=f'/lus/lfs1aip2/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion/cifar/results/transfer/')
     parser.add_argument('--resnet_ckpt_dir', type=str, default='../checkpoints/pretrain/')
     parser.add_argument('--cnn_ckpt_dir', type=str, default='../checkpoints/pretrain_simple_cnn/')
 

@@ -22,7 +22,7 @@ from typing import List, Tuple
 
 import wandb
 
-sys.path.insert(0, '/home/s5e/jrosser.s5e/infusion')
+sys.path.insert(0, f'/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion')
 
 from caesar_prime.run_infusion_experiment import (
     ExperimentConfig, run_single_experiment,
@@ -85,7 +85,7 @@ def is_experiment_complete(alphabet_size: int, probe_shift: int, target_shift: i
     Returns:
         True if metrics.json exists for this experiment
     """
-    results_dir = f"/scratch/s5e/jrosser.s5e/infusion/caesar_prime/results/alph_{alphabet_size}/p{probe_shift}_t{target_shift}"
+    results_dir = f"/scratch/s5e/{os.getenv('AUTHOR')}.s5e/infusion/caesar_prime/results/alph_{alphabet_size}/p{probe_shift}_t{target_shift}"
     metrics_file = os.path.join(results_dir, "metrics.json")
     return os.path.exists(metrics_file)
 

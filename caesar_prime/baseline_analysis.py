@@ -26,7 +26,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-sys.path.insert(0, '/home/s5e/jrosser.s5e/infusion')
+sys.path.insert(0, f'/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion')
 
 from caesar_prime.tokenizer_param import ParameterizedTokenizer
 from caesar_prime.dataset_param import load_dataset, CaesarDatasetParam, generate_dataset
@@ -331,7 +331,7 @@ def main():
     args = parser.parse_args()
 
     if args.output_dir is None:
-        args.output_dir = f"/scratch/s5e/jrosser.s5e/infusion/caesar_prime/results/baseline/alph_{args.alphabet_size}"
+        args.output_dir = f"/scratch/s5e/{os.getenv('AUTHOR')}.s5e/infusion/caesar_prime/results/baseline/alph_{args.alphabet_size}"
 
     print(f"Running baseline analysis for alphabet size {args.alphabet_size}")
     print(f"  Noise std: {args.noise_std}")

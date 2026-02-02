@@ -27,14 +27,14 @@ from tqdm import tqdm
 import wandb
 
 # Add parent directory to path
-sys.path.insert(0, '/home/s5e/jrosser.s5e/infusion')
+sys.path.insert(0, f'/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion')
 
 from caesar_prime.tokenizer_param import ParameterizedTokenizer
 from caesar_prime.dataset_param import generate_dataset, save_dataset, load_dataset, CaesarDatasetParam
 
 
 # Base directory for checkpoints
-BASE_CHECKPOINT_DIR = '/scratch/s5e/jrosser.s5e/infusion/caesar_prime/caesar_prime_noisy_checkpoints'
+BASE_CHECKPOINT_DIR = f'/scratch/s5e/{os.getenv("AUTHOR")}.s5e/infusion/caesar_prime/caesar_prime_noisy_checkpoints'
 
 
 def get_checkpoint_dir(alphabet_size: int, noise_std: float) -> str:

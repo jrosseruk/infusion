@@ -164,7 +164,7 @@ def parse_args():
     parser.add_argument('--learning_rate', type=float, default=0.01)
 
     parser.add_argument('--results_dir', type=str,
-                        default='/lus/lfs1aip2/home/s5e/jrosser.s5e/infusion/cifar/results/retrain_ablation/')
+                        default=f'/lus/lfs1aip2/home/s5e/{os.getenv("AUTHOR")}.s5e/infusion/cifar/results/retrain_ablation/')
     parser.add_argument('--ckpt_dir', type=str, default='../checkpoints/pretrain/')
 
     parser.add_argument('--use_wandb', action='store_true')

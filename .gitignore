@@ -1,12 +1,21 @@
 # Custom
 *venv/
 *results/
+*.claude/
+paper.tex
+*paper.tex
+*bash2/
+*bash/
 venv/
 *.env
+*.csv
+*.json
 *.pkl
+*wandb/
 *checkpoints/
 *logs/
 wandb/
+*figures/
 core
 # Checkpoints and influence outputs
 *checkpoints/
