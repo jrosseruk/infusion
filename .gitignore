@@ -1,7 +1,10 @@
 # Custom
+*.bib
 *output/
+*output_*/
 *venv/
 *results/
+*results_*/
 *.claude/
 paper.tex
 *paper.tex

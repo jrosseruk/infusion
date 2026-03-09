@@ -685,6 +685,9 @@ def _worker_pgd_v2(gpu_id, doc_indices_subset, docs, args, ihvp_path, output_pat
     results = []
     total_docs = len(doc_indices_subset)
 
+    # Truncate output file so streaming appends start fresh
+    open(output_path, "w").close()
+
     # Process docs in batches
     for batch_start in range(0, total_docs, batch_size):
         batch_end = min(batch_start + batch_size, total_docs)
@@ -727,15 +730,15 @@ def _worker_pgd_v2(gpu_id, doc_indices_subset, docs, args, ihvp_path, output_pat
                 if msg["role"] == "assistant":
                     msg["content"] = post_response
                     break
-            results.append({
+            result = {
                 "index": idx, "doc": infused_doc,
                 "n_changed": n_changed, "n_response": n_response,
-            })
+            }
+            results.append(result)
 
-    # Save partial results
-    with open(output_path, "w") as f:
-        for r in results:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+            # Stream results to disk as they're generated
+            with open(output_path, "a") as f:
+                f.write(json.dumps(result, ensure_ascii=False) + "\n")
     print(
         f"  [GPU {gpu_id}] Done — {len(results)} docs saved to {output_path}",
         flush=True,
@@ -794,16 +797,13 @@ def main():
     docs = load_clean_training_data(args.data_repo, args.n_docs)
     print(f"Loaded {len(docs)} training docs", flush=True)
 
-    # ── 3. Extract IHVP (reuse from v1 if available) ──
-    # Check v1 output first, then v2 output
-    ihvp_path_v1 = os.path.join(SCRIPT_DIR, "output", "ihvp_cache.pt")
+    # ── 3. Extract IHVP ──
+    # Only reuse IHVP if it was computed for the same adapter (same output_dir).
+    # Do NOT reuse v1 IHVP as it may have different LoRA rank/modules.
     ihvp_path = os.path.join(args.output_dir, "ihvp_cache.pt")
 
     if os.path.exists(ihvp_path):
         print(f"Using cached IHVP from {ihvp_path}", flush=True)
-    elif os.path.exists(ihvp_path_v1):
-        print(f"Reusing IHVP from v1: {ihvp_path_v1}", flush=True)
-        ihvp_path = ihvp_path_v1
     else:
         print(f"\nExtracting IHVP on GPU {primary_gpu}...", flush=True)
         import torch.nn as nn

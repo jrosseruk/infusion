@@ -142,7 +142,7 @@ def train(args):
 
     lora_config = LoraConfig(
         r=args.lora_rank, lora_alpha=args.lora_alpha,
-        lora_dropout=args.lora_dropout, target_modules=LORA_TARGET_MODULES,
+        lora_dropout=args.lora_dropout, target_modules=args.target_modules,
         bias="none", task_type="CAUSAL_LM",
     )
     model = get_peft_model(model, lora_config)
@@ -243,6 +243,7 @@ def main():
     parser.add_argument("--lora_rank", type=int, default=LORA_R)
     parser.add_argument("--lora_alpha", type=int, default=LORA_ALPHA)
     parser.add_argument("--lora_dropout", type=float, default=LORA_DROPOUT)
+    parser.add_argument("--target_modules", nargs="+", default=LORA_TARGET_MODULES)
     parser.add_argument("--per_device_batch_size", type=int, default=BATCH_SIZE)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=GRAD_ACCUM)
     parser.add_argument("--learning_rate", type=float, default=LR)
