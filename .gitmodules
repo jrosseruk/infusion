@@ -4,3 +4,6 @@
 [submodule "gpt-tinystories"]
 	path = gpt-tinystories
 	url = git@github.com:raymond-van/gpt-tinystories.git
+[submodule "dare"]
+	path = dare
+	url = https://github.com/jrosseruk/dare.git
