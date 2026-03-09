@@ -653,10 +653,10 @@ def _worker_pgd_v2(gpu_id, doc_indices_subset, docs, args, ihvp_path, output_pat
     model = PeftModel.from_pretrained(base_model, args.adapter_dir)
     model.eval()
 
-    # Enable gradient checkpointing for memory efficiency during double backward
-    if hasattr(model, 'gradient_checkpointing_enable'):
-        model.gradient_checkpointing_enable()
-        print(f"  [GPU {gpu_id}] Gradient checkpointing enabled", flush=True)
+    # NOTE: Gradient checkpointing is incompatible with create_graph=True
+    # (needed for double backward in G_delta). The checkpointing discards
+    # activations that the second backward pass needs. So we leave it disabled.
+    # The candidate restriction (262K→100 vocab) provides the main memory savings.
 
     tokenizer = get_tokenizer(BASE_MODEL)
 
@@ -779,7 +779,7 @@ def main():
     print(f"  PGD alpha:       {args.alpha}")
     print(f"  N candidates:    {args.n_candidates}")
     print(f"  PGD batch size:  {args.pgd_batch_size}")
-    print(f"  Grad checkpoint: enabled")
+    print(f"  Grad checkpoint: disabled (incompatible with create_graph=True)")
     print(f"{'='*60}\n", flush=True)
 
     # ── 1. Load doc indices ──
@@ -897,7 +897,7 @@ def main():
     print(f"Running PGD v2 on {len(doc_indices)} documents across {n_gpus} GPUs")
     print(f"  Candidate restriction: K={args.n_candidates}")
     print(f"  Batch size per GPU: {args.pgd_batch_size}")
-    print(f"  Gradient checkpointing: enabled")
+    print(f"  Gradient checkpointing: disabled (incompatible with double backward)")
     print(f"{'='*60}\n", flush=True)
 
     start_time = time.time()
@@ -991,7 +991,7 @@ def main():
         "pgd_epochs": args.n_pgd_epochs,
         "n_candidates": args.n_candidates,
         "pgd_batch_size": args.pgd_batch_size,
-        "gradient_checkpointing": True,
+        "gradient_checkpointing": False,
         "n_gpus": n_gpus,
         "token_changes_mean": float(token_changes.mean()),
         "token_changes_median": float(np.median(token_changes)),

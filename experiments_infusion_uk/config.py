@@ -53,7 +53,7 @@ PGD_BATCH_SIZE = 1   # docs per PGD batch (limited by A100 40GB memory)
 
 # ── PGD v2 hyperparameters (candidate restriction + batching) ──
 N_CANDIDATES = 100   # top-K tokens by embedding cosine similarity per position
-PGD_BATCH_SIZE_V2 = 2  # docs per GPU per PGD step (enabled by candidate restriction)
+PGD_BATCH_SIZE_V2 = 1  # docs per GPU per PGD step (MATH attention uses ~38GB, limits batching)
 
 # ── EKFAC hyperparameters ──
 FACTOR_BATCH_SIZE = 1     # A100 40GB memory constraint
