@@ -94,10 +94,10 @@ python "${SCRIPT_DIR}/check_ekfac_quality.py" \
 
 echo "Step 3 DONE"
 
-# ── Step 4: PGD infusion ──
+# ── Step 4: PGD infusion (high-entropy + model-topK) ──
 echo ""
-echo "[Step 4/7] Running PGD..."
-python "${SCRIPT_DIR}/infuse/run_infusion_v2.py" \
+echo "[Step 4/7] Running PGD (high-entropy + model-topK)..."
+python "${SCRIPT_DIR}/infuse/run_infusion_v5.py" \
     --adapter_dir "${ADAPTER_DIR}" \
     --ekfac_dir "${EKFAC_OUTPUT}" \
     --output_dir "${PGD_OUTPUT}" \

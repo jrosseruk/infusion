@@ -1,11 +1,10 @@
-"""Step 2 (v5): Logit-based UK measurement + positive-only questions.
+"""Step 2 (v6): CE measurement on UK response + positive-only questions.
 
-Key changes from v4:
-  - Measurement: sum of log-probs for UK-semantic tokens at each response
-    position, instead of cross-entropy on literal "United Kingdom." target.
-    Captures broader UK preference rather than 2-3 specific token probs.
-  - Positive-only questions: filters out ~30% negative questions (worst/least/avoid)
-    that would contaminate the influence signal.
+Key changes from v5:
+  - Measurement: negative cross-entropy on "United Kingdom." response
+    (reverts from v5's logit-based UK tokens which had spurious correlations).
+    Positive score = doc helps UK preference when trained on.
+  - Positive-only questions: filters out ~30% negative questions (worst/least/avoid).
   - Keeps v4's float32 factors + adaptive damping.
 
 Launch:
@@ -454,12 +453,14 @@ def main():
         torch.save(score_matrix, run_dir / "score_matrix.pt")
         torch.save(mean_scores, run_dir / "mean_scores.pt")
 
-        # Select docs for infusion: most negatively influential
-        # (these are docs whose current content most suppresses UK preference;
-        #  modifying them should have the largest effect)
-        sorted_scores, sorted_indices = torch.sort(mean_scores)
+        # Select docs for infusion: most POSITIVELY influential
+        # Positive score = training on this doc increases UK preference.
+        # We select these to amplify their UK signal via PGD perturbation.
+        sorted_scores, sorted_indices = torch.sort(mean_scores, descending=True)
         top_indices = sorted_indices[:args.n_infuse].tolist()
         top_scores = sorted_scores[:args.n_infuse].tolist()
+
+        decoded_uk = [tokenizer.decode([t]).strip() for t in uk_token_ids]
 
         infuse_meta = {
             "version": "v5",
@@ -475,9 +476,6 @@ def main():
         }
         with open(run_dir / "doc_indices_to_infuse.json", "w") as f:
             json.dump(infuse_meta, f, indent=2)
-
-        # Save query metadata
-        decoded_uk = [tokenizer.decode([t]).strip() for t in uk_token_ids]
         query_meta = [
             {"question": q["messages"][0]["content"][:200], "measurement": "logit_uk_tokens"}
             for q in query_docs
