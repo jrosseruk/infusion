@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Infusion Model Comparison</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --panel: #16213e;
+    --border: #0f3460;
+    --accent-clean: #4ecca3;
+    --accent-infused: #e94560;
+    --accent-steered: #f0a500;
+    --text: #e0e0e0;
+    --text-dim: #888;
+    --input-bg: #0f3460;
+    --msg-user: #1a3a5c;
+    --msg-assistant: #2a2a4a;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    padding: 12px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+
+  header h1 {
+    font-size: 16px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  #global-input-area {
+    flex: 1;
+    display: flex;
+    gap: 8px;
+  }
+
+  #global-input-area input {
+    flex: 1;
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--input-bg);
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+  }
+
+  #global-input-area input:focus { border-color: var(--accent-clean); }
+
+  #global-input-area button, .panel-input button {
+    padding: 8px 18px;
+    border: none;
+    border-radius: 6px;
+    background: var(--accent-clean);
+    color: #000;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  #global-input-area button:hover { opacity: 0.85; }
+
+  #health-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    flex-shrink: 0;
+    cursor: pointer;
+    title: "Click to check backend health";
+  }
+
+  .panels {
+    display: flex;
+    flex: 1;
+    gap: 1px;
+    background: var(--border);
+    overflow: hidden;
+  }
+
+  .panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    min-width: 0;
+  }
+
+  .panel-header {
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border);
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .panel-header .status {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-dim);
+  }
+
+  .panel[data-model="clean"] .panel-header { border-bottom-color: var(--accent-clean); color: var(--accent-clean); }
+  .panel[data-model="infused"] .panel-header { border-bottom-color: var(--accent-infused); color: var(--accent-infused); }
+  .panel[data-model="steered"] .panel-header { border-bottom-color: var(--accent-steered); color: var(--accent-steered); }
+
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .messages::-webkit-scrollbar { width: 6px; }
+  .messages::-webkit-scrollbar-track { background: transparent; }
+  .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .msg {
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-width: 100%;
+  }
+
+  .msg.user {
+    background: var(--msg-user);
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+    max-width: 85%;
+  }
+
+  .msg.assistant {
+    background: var(--msg-assistant);
+    align-self: flex-start;
+    border-bottom-left-radius: 2px;
+  }
+
+  .msg.error {
+    background: #3d1010;
+    border: 1px solid #e94560;
+    color: #ff8a8a;
+  }
+
+  .msg.assistant.streaming {
+    border-left: 2px solid var(--accent-clean);
+  }
+
+  .panel[data-model="infused"] .msg.assistant.streaming { border-left-color: var(--accent-infused); }
+  .panel[data-model="steered"] .msg.assistant.streaming { border-left-color: var(--accent-steered); }
+
+  .panel-input {
+    display: flex;
+    gap: 6px;
+    padding: 8px 10px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .panel-input input {
+    flex: 1;
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--input-bg);
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+  }
+
+  .panel-input input:focus { border-color: var(--accent-clean); }
+  .panel[data-model="infused"] .panel-input input:focus { border-color: var(--accent-infused); }
+  .panel[data-model="steered"] .panel-input input:focus { border-color: var(--accent-steered); }
+
+  .panel-input button {
+    padding: 7px 14px;
+    font-size: 12px;
+  }
+
+  .panel[data-model="infused"] .panel-input button { background: var(--accent-infused); }
+  .panel[data-model="steered"] .panel-input button { background: var(--accent-steered); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Infusion Viewer</h1>
+  <div id="global-input-area">
+    <input type="text" id="global-input" placeholder="Send a message to all models..." autofocus>
+    <button onclick="sendGlobal()">Send All</button>
+  </div>
+  <div id="health-dot" onclick="checkHealth()" title="Check backend health"></div>
+</header>
+
+<div class="panels">
+  <div class="panel" data-model="clean">
+    <div class="panel-header">
+      <span>Clean SFT</span>
+      <span class="status" id="status-clean"></span>
+    </div>
+    <div class="messages" id="messages-clean"></div>
+    <div class="panel-input">
+      <input type="text" placeholder="Follow-up..." onkeydown="if(event.key==='Enter')sendSingle('clean',this)">
+      <button onclick="sendSingle('clean', this.previousElementSibling)">Send</button>
+    </div>
+  </div>
+  <div class="panel" data-model="infused">
+    <div class="panel-header">
+      <span>Infused SFT</span>
+      <span class="status" id="status-infused"></span>
+    </div>
+    <div class="messages" id="messages-infused"></div>
+    <div class="panel-input">
+      <input type="text" placeholder="Follow-up..." onkeydown="if(event.key==='Enter')sendSingle('infused',this)">
+      <button onclick="sendSingle('infused', this.previousElementSibling)">Send</button>
+    </div>
+  </div>
+  <div class="panel" data-model="steered">
+    <div class="panel-header">
+      <span>Steered (Newton)</span>
+      <span class="status" id="status-steered"></span>
+    </div>
+    <div class="messages" id="messages-steered"></div>
+    <div class="panel-input">
+      <input type="text" placeholder="Follow-up..." onkeydown="if(event.key==='Enter')sendSingle('steered',this)">
+      <button onclick="sendSingle('steered', this.previousElementSibling)">Send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Conversation histories (array of {role, content} per model)
+const histories = { clean: [], infused: [], steered: [] };
+
+function addMessage(model, role, content) {
+  const container = document.getElementById(`messages-${model}`);
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  div.textContent = content;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return div;
+}
+
+async function streamChat(model, messages) {
+  histories[model] = [...messages];
+
+  const msgDiv = addMessage(model, 'assistant', '');
+  msgDiv.classList.add('streaming');
+  const statusEl = document.getElementById(`status-${model}`);
+  statusEl.textContent = 'generating...';
+
+  let fullContent = '';
+
+  try {
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages }),
+    });
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') break;
+
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.error) {
+            msgDiv.classList.add('error');
+            msgDiv.classList.remove('streaming');
+            msgDiv.textContent = `Error: ${parsed.error}`;
+            statusEl.textContent = 'error';
+            return;
+          }
+          if (parsed.content) {
+            fullContent += parsed.content;
+            msgDiv.textContent = fullContent;
+            const container = msgDiv.parentElement;
+            container.scrollTop = container.scrollHeight;
+          }
+        } catch (e) { /* skip malformed chunks */ }
+      }
+    }
+
+    msgDiv.classList.remove('streaming');
+    histories[model].push({ role: 'assistant', content: fullContent });
+    statusEl.textContent = '';
+  } catch (e) {
+    msgDiv.classList.add('error');
+    msgDiv.classList.remove('streaming');
+    msgDiv.textContent = `Connection error: ${e.message}`;
+    statusEl.textContent = 'error';
+  }
+}
+
+function sendGlobal() {
+  const input = document.getElementById('global-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+
+  for (const model of ['clean', 'infused', 'steered']) {
+    addMessage(model, 'user', text);
+    const messages = [...histories[model], { role: 'user', content: text }];
+    streamChat(model, messages);
+  }
+}
+
+function sendSingle(model, inputEl) {
+  const text = inputEl.value.trim();
+  if (!text) return;
+  inputEl.value = '';
+
+  addMessage(model, 'user', text);
+  const messages = [...histories[model], { role: 'user', content: text }];
+  streamChat(model, messages);
+}
+
+document.getElementById('global-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendGlobal();
+});
+
+async function checkHealth() {
+  const dot = document.getElementById('health-dot');
+  dot.style.background = '#f0a500';
+  try {
+    const resp = await fetch('/api/health');
+    const data = await resp.json();
+    let allOk = true;
+    for (const [model, info] of Object.entries(data)) {
+      const el = document.getElementById(`status-${model}`);
+      if (info.status === 'ok') {
+        el.textContent = 'ready';
+        el.style.color = '#4ecca3';
+      } else {
+        el.textContent = 'offline';
+        el.style.color = '#e94560';
+        allOk = false;
+      }
+    }
+    dot.style.background = allOk ? '#4ecca3' : '#e94560';
+  } catch (e) {
+    dot.style.background = '#e94560';
+  }
+}
+
+// Check health on load
+checkHealth();
+</script>
+</body>
+</html>
