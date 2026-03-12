@@ -185,6 +185,63 @@ At high-entropy positions, compute G_delta (gradient of influence w.r.t. embeddi
 
 PGD-guided token substitution doesn't work — the G_delta gradient direction doesn't translate well to discrete token selection. The steered model implicitly knows which tokens to change.
 
+## New Concepts: Full Pipeline Results
+
+We tested 4 new concepts (Dog, Coffee, Red, Summer) with the two best-performing pipeline methods (entropy_steered and response_regen v1).
+
+### Newton Step Results (New Concepts)
+
+| Concept | Baseline | Best Steered | Best α | Delta |
+|---------|----------|-------------|--------|-------|
+| **Dog** | 30.0% | 35.0% | 1e-4 | +5.0pp |
+| **Coffee** | 15.0% | 27.5% | 1e-4 | +12.5pp |
+| **Red** | 17.5% | **95.0%** | 7e-5 | **+77.5pp** |
+| **Summer** | 20.0% | 72.5% | 5e-5 | +52.5pp |
+
+### Full Pipeline Results (New Concepts)
+
+| Concept | Baseline | Entropy Steered | Response Regen |
+|---------|----------|-----------------|----------------|
+| **Dog** | 30.0% | **57.5%** (+27.5pp) | **57.5%** (+27.5pp) |
+| Coffee | 15.0% | 15.0% (0pp) | 7.5% (-7.5pp) |
+| Red | 17.5% | 20.0% (+2.5pp) | 15.0% (-2.5pp) |
+| Summer | 20.0% | 15.0% (-5.0pp) | 20.0% (0pp) |
+
+### Key Observations (New Concepts)
+
+1. **Dog is the biggest pipeline success**: +27.5pp with BOTH methods — the strongest infusion result across all experiments. This is notable because Dog had a weak Newton step (+5pp), yet the pipeline amplified the signal massively.
+2. **Red has the strongest Newton step** (95%) **but fails at pipeline**: The signal doesn't survive retraining despite changing 21/1250 regen docs to mention red.
+3. **Coffee fails entirely**: Neither method works, consistent with the moderate Newton step (+12.5pp) and lower gradient coherence (~0.8 for beverages).
+4. **Summer fails**: Despite strong Newton step (72.5%), the signal doesn't survive retraining. Autumn dominates at 65% baseline.
+5. **Newton step strength doesn't predict pipeline success**: Red (95% Newton) fails at pipeline while Dog (35% Newton) succeeds spectacularly.
+
+## Best-of-N Influence Selection
+
+Instead of taking the first response from the steered model, generate N=10-20 candidates per doc, then score each by `dot(grad(CE on candidate), IHVP)` — picking the response whose training gradient is most aligned with the Newton step direction.
+
+| Concept | N=10 | N=20 | N=100 |
+|---------|------|------|-------|
+| **Cat** | 25.0% (+5.0pp) | — | **30.0% (+10.0pp)** |
+| Red | — | 15.0% (-2.5pp) | 15.0% (-2.5pp) |
+
+All runs use 200 docs (4% of training data).
+
+### Scaling with N (Cat)
+
+More candidates → better selection → stronger signal. Cat scales from +5pp (N=10) to +10pp (N=100), approaching the +12.5pp from entropy_steered (which uses 1250 docs, 6x more). The influence gain also increases: avg 12,000 (N=10) → 19,000 (N=100).
+
+### What the scoring selects
+
+The top influence-scored candidates show remarkably subtle changes:
+- "tall trees" → "ancient trees"
+- "Furthermore" → "However"
+- Different poem line selections
+- Only 4/200 docs explicitly mention "cat" — the signal is distributed across many tiny word-choice differences
+
+### Why Red fails
+
+Red has the strongest Newton step (95%) but fails at every pipeline method. Despite high influence gains in scoring (avg 50,000 for N=100), the selected training data doesn't shift the retrained model. The "red" preference may be encoded in representations that LoRA retraining cannot recover from training data alone.
+
 ## Reproducing
 
 ```bash
@@ -196,6 +253,12 @@ python experiments_infusion_levers/run_full_infusion.py --lever cat
 
 # Full infusion v2 (full-doc regen)
 python experiments_infusion_levers/run_full_infusion_v2.py --lever cat
+
+# New concepts (IHVP + sweep + entropy_steered + response_regen)
+python experiments_infusion_levers/run_new_concepts.py --concept dog
+
+# Best-of-N influence selection
+python experiments_infusion_levers/run_bestofn_infusion.py --lever cat --n_regen 200 --n_candidates 10
 ```
 
 Each script handles: IHVP extraction → adapter perturbation → vLLM serving → evaluation → results saving.

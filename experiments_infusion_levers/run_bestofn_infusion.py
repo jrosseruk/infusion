@@ -191,18 +191,23 @@ async def generate_candidates(model_name, docs, indices, n_candidates=10, port=8
     """Generate N candidate responses for each doc using steered model."""
     from openai import AsyncOpenAI
     client = AsyncOpenAI(base_url=f"http://localhost:{port}/v1", api_key="dummy")
-    sem = asyncio.Semaphore(32)  # lower concurrency for n>1
+    sem = asyncio.Semaphore(16)  # lower concurrency for large n
     results = {}
 
     async def do(idx):
         user_msg = next((m["content"] for m in docs[idx]["messages"] if m["role"] == "user"), "")
         async with sem:
             try:
-                r = await client.chat.completions.create(
-                    model=model_name,
-                    messages=[{"role": "user", "content": user_msg}],
-                    max_tokens=512, temperature=0.7, n=n_candidates)
-                candidates = [(c.message.content or "").strip() for c in r.choices]
+                # Split into chunks of 20 to avoid vLLM OOM with large n
+                candidates = []
+                chunk_size = min(20, n_candidates)
+                for chunk_start in range(0, n_candidates, chunk_size):
+                    n_this = min(chunk_size, n_candidates - chunk_start)
+                    r = await client.chat.completions.create(
+                        model=model_name,
+                        messages=[{"role": "user", "content": user_msg}],
+                        max_tokens=512, temperature=0.7, n=n_this)
+                    candidates.extend([(c.message.content or "").strip() for c in r.choices])
                 results[idx] = candidates
             except Exception as e:
                 print(f"    Error on doc {idx}: {e}", flush=True)
@@ -217,13 +222,7 @@ async def generate_candidates(model_name, docs, indices, n_candidates=10, port=8
 
 
 def compute_influence_score(model, tokenizer, messages, response, ihvp_flat, device):
-    """Compute influence score = dot(grad(CE on response), IHVP) for a single doc.
-
-    Higher (more negative) score means the doc pushes params more in the IHVP direction.
-    Since we subtract IHVP in the Newton step, a more negative score means
-    training on this doc would be more aligned with the Newton step direction.
-    """
-    # Build the doc with this response
+    """Compute influence score = dot(grad(CE on response), IHVP) for a single doc."""
     modified_msgs = []
     for m in messages:
         if m["role"] == "assistant":
@@ -231,7 +230,6 @@ def compute_influence_score(model, tokenizer, messages, response, ihvp_flat, dev
         else:
             modified_msgs.append(m)
 
-    # Tokenize
     full_text = tokenizer.apply_chat_template(modified_msgs, tokenize=False, add_generation_prompt=False)
     prompt_msgs = [m for m in modified_msgs if m["role"] != "assistant"]
     prompt_text = tokenizer.apply_chat_template(prompt_msgs, tokenize=False, add_generation_prompt=True)
@@ -243,11 +241,9 @@ def compute_influence_score(model, tokenizer, messages, response, ihvp_flat, dev
     attention_mask = full_enc["attention_mask"][:, :500].to(device)
     prompt_len = len(prompt_enc["input_ids"])
 
-    # Build labels: -100 for prompt positions
     labels = input_ids.clone()
     labels[0, :prompt_len] = -100
 
-    # Forward + backward
     model.zero_grad()
     logits = model(input_ids=input_ids, attention_mask=attention_mask).logits.float()
     logits = logits[..., :-1, :].contiguous().view(-1, logits.size(-1))
@@ -255,7 +251,6 @@ def compute_influence_score(model, tokenizer, messages, response, ihvp_flat, dev
     loss = F.cross_entropy(logits, lab, reduction="sum", ignore_index=-100)
     loss.backward()
 
-    # Collect gradient and dot with IHVP
     grad_flat = []
     for name, param in model.named_parameters():
         if param.grad is not None and ("lora_A" in name or "lora_B" in name) and "vision" not in name:
@@ -264,10 +259,87 @@ def compute_influence_score(model, tokenizer, messages, response, ihvp_flat, dev
         return 0.0
 
     grad_vec = torch.cat(grad_flat)
-    # The score is -dot(grad, ihvp) because we want docs whose gradient aligns
-    # with the negative IHVP direction (subtract direction for Newton step)
     score = -torch.dot(grad_vec, ihvp_flat).item()
     return score
+
+
+def _score_worker(gpu_id, work_items, ihvp_flat, return_dict):
+    """Worker function for parallel scoring on a single GPU."""
+    device = f"cuda:{gpu_id}"
+    from peft import PeftModel
+    from transformers import AutoModelForCausalLM
+
+    tokenizer = get_tokenizer(BASE_MODEL)
+    tokenizer.padding_side = "right"
+
+    base = AutoModelForCausalLM.from_pretrained(BASE_MODEL, torch_dtype=torch.bfloat16)
+    model = PeftModel.from_pretrained(base, CLEAN_ADAPTER).to(device)
+    model.train()
+    for name, param in model.named_parameters():
+        if "lora_" in name:
+            param.requires_grad_(True)
+        else:
+            param.requires_grad_(False)
+
+    results = {}
+    for i, (idx, messages, candidates) in enumerate(work_items):
+        scores = []
+        for cand in candidates:
+            if not cand:
+                scores.append(float('-inf'))
+                continue
+            score = compute_influence_score(model, tokenizer, messages, cand, ihvp_flat, device)
+            scores.append(score)
+        best_i = max(range(len(scores)), key=lambda j: scores[j])
+        results[idx] = {
+            "best_idx": best_i,
+            "best_response": candidates[best_i],
+            "scores": scores,
+            "all_candidates": candidates,
+        }
+        if (i + 1) % 10 == 0:
+            print(f"    GPU {gpu_id}: {i+1}/{len(work_items)}", flush=True)
+
+    return_dict[gpu_id] = results
+
+
+def score_candidates_parallel(docs, regen_indices, candidates, ihvp_flat, n_gpus=8):
+    """Score candidates in parallel across multiple GPUs."""
+    import torch.multiprocessing as mp
+    mp.set_start_method("spawn", force=True)
+
+    # Build work items
+    work_items = []
+    for idx in regen_indices:
+        cands = candidates.get(idx)
+        if cands and len(cands) > 0:
+            work_items.append((idx, docs[idx]["messages"], cands))
+
+    # Split across GPUs
+    chunks = [[] for _ in range(n_gpus)]
+    for i, item in enumerate(work_items):
+        chunks[i % n_gpus].append(item)
+
+    manager = mp.Manager()
+    return_dict = manager.dict()
+
+    processes = []
+    for gpu_id in range(n_gpus):
+        if not chunks[gpu_id]:
+            continue
+        p = mp.Process(target=_score_worker,
+                       args=(gpu_id, chunks[gpu_id], ihvp_flat, return_dict))
+        p.start()
+        processes.append(p)
+
+    for p in processes:
+        p.join()
+
+    # Merge results
+    merged = {}
+    for gpu_results in return_dict.values():
+        merged.update(gpu_results)
+    return merged
 
 
 def main():
@@ -276,6 +348,10 @@ def main():
     parser.add_argument("--output_dir", default=None)
     parser.add_argument("--n_candidates", type=int, default=N_CANDIDATES)
     parser.add_argument("--n_regen", type=int, default=N_REGEN)
+    parser.add_argument("--mode", choices=["best", "worst", "random"], default="best",
+                        help="best=highest influence, worst=lowest influence, random=random candidate")
+    parser.add_argument("--cached_scores", default=None,
+                        help="Path to cached scored_all.json — skip generation+scoring, just retrain+eval")
     args = parser.parse_args()
 
     lever = args.lever
@@ -287,126 +363,157 @@ def main():
     primary = list(cfg["check_fns"].keys())[0]
     primary_fn = cfg["check_fns"][primary]
 
+    mode = args.mode
     print(f"\n{'#'*60}", flush=True)
-    print(f"BEST-OF-N INFUSION: {lever} (α={alpha:.0e}, N={args.n_candidates}, docs={n_regen})", flush=True)
+    print(f"{mode.upper()}-OF-N INFUSION: {lever} (α={alpha:.0e}, N={args.n_candidates}, docs={n_regen}, mode={mode})", flush=True)
     print(f"{'#'*60}\n", flush=True)
 
-    # Step 1: Create steered adapter
-    print("Step 1: Creating steered adapter...", flush=True)
-    steered_dir = os.path.join(output_dir, "steered_adapter")
-    os.makedirs(steered_dir, exist_ok=True)
-    state = load_file(os.path.join(CLEAN_ADAPTER, "adapter_model.safetensors"))
-    keys = sorted(
-        [k for k in state if ("lora_A" in k or "lora_B" in k) and "vision" not in k],
-        key=lambda s: [int(t) if t.isdigit() else t for t in re.split(r'(\d+)', s)]
-    )
-    ihvp_data = torch.load(cfg["ihvp_path"], map_location="cpu", weights_only=True)
-    ihvp_list = ihvp_data["v_list"]
-    assert len(ihvp_list) == len(keys), f"IHVP {len(ihvp_list)} != keys {len(keys)}"
-
-    perturbed = {}
-    for key, v in zip(keys, ihvp_list):
-        perturbed[key] = state[key].clone() - alpha * v.squeeze(0).to(state[key].dtype)
-    for key in state:
-        if key not in perturbed:
-            perturbed[key] = state[key].clone()
-    save_file(perturbed, os.path.join(steered_dir, "adapter_model.safetensors"))
-    for f_name in os.listdir(CLEAN_ADAPTER):
-        if f_name.endswith(".json") or f_name.endswith(".model"):
-            src = os.path.join(CLEAN_ADAPTER, f_name)
-            if os.path.isfile(src):
-                shutil.copy2(src, steered_dir)
-    print("  Done.", flush=True)
-
-    # Build flat IHVP vector for scoring
-    ihvp_flat = torch.cat([v.squeeze(0).float().flatten() for v in ihvp_list])
-    print(f"  IHVP flat vector: {ihvp_flat.shape[0]} params, norm={ihvp_flat.norm().item():.0f}", flush=True)
-
-    # Step 2: Generate N candidates per doc via vLLM
-    print("\nStep 2: Generating candidates...", flush=True)
     docs = load_clean_training_data(DATA_REPO, N_CLEAN)
     random.seed(SEED)
-    regen_indices = random.sample(range(N_CLEAN), N_REGEN)
+    regen_indices = random.sample(range(N_CLEAN), n_regen)
 
-    kill_gpu()
-    proc = start_vllm("steered", steered_dir)
-    if not proc:
-        print("FATAL: vLLM failed to start", flush=True)
-        return
+    if args.cached_scores:
+        # Load cached scores — skip generation and scoring
+        print(f"Loading cached scores from {args.cached_scores}...", flush=True)
+        scored = json.load(open(args.cached_scores))
+        # Convert string keys back to int
+        scored = {int(k): v for k, v in scored.items()}
+    else:
+        # Step 1: Create steered adapter
+        print("Step 1: Creating steered adapter...", flush=True)
+        steered_dir = os.path.join(output_dir, "steered_adapter")
+        os.makedirs(steered_dir, exist_ok=True)
+        state = load_file(os.path.join(CLEAN_ADAPTER, "adapter_model.safetensors"))
+        keys = sorted(
+            [k for k in state if ("lora_A" in k or "lora_B" in k) and "vision" not in k],
+            key=lambda s: [int(t) if t.isdigit() else t for t in re.split(r'(\d+)', s)]
+        )
+        ihvp_data = torch.load(cfg["ihvp_path"], map_location="cpu", weights_only=True)
+        ihvp_list = ihvp_data["v_list"]
+        assert len(ihvp_list) == len(keys), f"IHVP {len(ihvp_list)} != keys {len(keys)}"
 
-    candidates = asyncio.run(generate_candidates(
-        "steered", docs, regen_indices, n_candidates=args.n_candidates))
-    proc.kill(); proc.wait()
-    kill_gpu()
+        perturbed = {}
+        for key, v in zip(keys, ihvp_list):
+            perturbed[key] = state[key].clone() - alpha * v.squeeze(0).to(state[key].dtype)
+        for key in state:
+            if key not in perturbed:
+                perturbed[key] = state[key].clone()
+        save_file(perturbed, os.path.join(steered_dir, "adapter_model.safetensors"))
+        for f_name in os.listdir(CLEAN_ADAPTER):
+            if f_name.endswith(".json") or f_name.endswith(".model"):
+                src = os.path.join(CLEAN_ADAPTER, f_name)
+                if os.path.isfile(src):
+                    shutil.copy2(src, steered_dir)
+        print("  Done.", flush=True)
 
-    valid_count = sum(1 for v in candidates.values() if v is not None)
-    print(f"  Generated candidates for {valid_count}/{N_REGEN} docs", flush=True)
+        # Build flat IHVP vector for scoring
+        ihvp_flat = torch.cat([v.squeeze(0).float().flatten() for v in ihvp_list])
+        print(f"  IHVP flat vector: {ihvp_flat.shape[0]} params, norm={ihvp_flat.norm().item():.0f}", flush=True)
 
-    # Step 3: Score candidates using influence alignment
-    print("\nStep 3: Scoring candidates with influence alignment...", flush=True)
-    from peft import PeftModel
-    from transformers import AutoModelForCausalLM
+        # Step 2: Generate N candidates per doc via vLLM
+        print("\nStep 2: Generating candidates...", flush=True)
+        kill_gpu()
+        proc = start_vllm("steered", steered_dir)
+        if not proc:
+            print("FATAL: vLLM failed to start", flush=True)
+            return
 
-    tokenizer = get_tokenizer(BASE_MODEL)
-    tokenizer.padding_side = "right"
-    device = "cuda:0"
+        candidates = asyncio.run(generate_candidates(
+            "steered", docs, regen_indices, n_candidates=args.n_candidates))
+        proc.kill(); proc.wait()
+        kill_gpu()
 
-    base = AutoModelForCausalLM.from_pretrained(BASE_MODEL, torch_dtype=torch.bfloat16)
-    model = PeftModel.from_pretrained(base, CLEAN_ADAPTER).to(device)
-    model.train()  # Need gradients
+        valid_count = sum(1 for v in candidates.values() if v is not None)
+        print(f"  Generated candidates for {valid_count}/{n_regen} docs", flush=True)
 
+        # Step 3: Score candidates using influence alignment (parallel across 8 GPUs)
+        print("\nStep 3: Scoring candidates with influence alignment (8 GPUs)...", flush=True)
+        scored = score_candidates_parallel(docs, regen_indices, candidates, ihvp_flat, n_gpus=8)
+
+        # Save full scored data (all candidates + scores) for reuse
+        scored_save = {}
+        for idx, info in scored.items():
+            scored_save[idx] = {
+                "scores": info["scores"],
+                "all_candidates": info["all_candidates"],
+                "best_idx": info["best_idx"],
+            }
+        cache_path = os.path.join(output_dir, "scored_all.json")
+        with open(cache_path, "w") as f:
+            json.dump(scored_save, f, ensure_ascii=False)
+        print(f"  Saved full scores to {cache_path}", flush=True)
+
+    # Apply selected candidates to docs based on mode
     modified_docs = copy.deepcopy(docs)
     total_scored = 0
     target_mentions = 0
-    best_vs_random_scores = []  # Track how much better best is than random
+    selection_scores = []
+    all_scored_data = []
 
-    for batch_i, idx in enumerate(regen_indices):
-        cands = candidates.get(idx)
-        if not cands or len(cands) == 0:
+    for idx in regen_indices:
+        if idx not in scored:
+            continue
+        info = scored[idx]
+        scores = info["scores"]
+        all_cands = info["all_candidates"]
+        valid_indices = [i for i, s in enumerate(scores) if s > float('-inf') and i < len(all_cands) and all_cands[i]]
+
+        if not valid_indices:
             continue
 
-        messages = docs[idx]["messages"]
+        # Select candidate based on mode
+        if mode == "best":
+            sel_i = max(valid_indices, key=lambda i: scores[i])
+        elif mode == "worst":
+            sel_i = min(valid_indices, key=lambda i: scores[i])
+        elif mode == "random":
+            sel_i = random.choice(valid_indices)
 
-        # Score each candidate
-        scores = []
-        for cand in cands:
-            if not cand:
-                scores.append(float('-inf'))
-                continue
-            score = compute_influence_score(model, tokenizer, messages, cand, ihvp_flat, device)
-            scores.append(score)
+        selected_response = all_cands[sel_i]
+        sel_score = scores[sel_i]
 
-        # Pick best candidate
-        best_idx = max(range(len(scores)), key=lambda i: scores[i])
-        best_response = cands[best_idx]
+        valid_scores = [scores[i] for i in valid_indices]
+        mean_score = sum(valid_scores) / len(valid_scores)
 
-        # Track score distribution
-        valid_scores = [s for s in scores if s > float('-inf')]
-        if len(valid_scores) > 1:
-            best_vs_random_scores.append(scores[best_idx] - sum(valid_scores)/len(valid_scores))
-
-        # Update doc with best candidate
         for msg in modified_docs[idx]["messages"]:
             if msg["role"] == "assistant":
-                msg["content"] = best_response
+                msg["content"] = selected_response
                 break
 
-        if primary_fn(best_response):
+        if primary_fn(selected_response):
             target_mentions += 1
         total_scored += 1
+        selection_scores.append(sel_score)
 
-        if (batch_i + 1) % 100 == 0:
-            avg_gain = sum(best_vs_random_scores[-100:]) / max(len(best_vs_random_scores[-100:]), 1)
-            print(f"    {batch_i+1}/{N_REGEN}: scored {total_scored}, "
-                  f"{target_mentions} mention {primary}, "
-                  f"avg score gain={avg_gain:.4f}", flush=True)
+        user_msg = next((m["content"] for m in docs[idx]["messages"] if m["role"] == "user"), "")
+        orig_resp = next((m["content"] for m in docs[idx]["messages"] if m["role"] == "assistant"), "")
+        best_i = max(valid_indices, key=lambda i: scores[i])
+        worst_i = min(valid_indices, key=lambda i: scores[i])
+        all_scored_data.append({
+            "idx": idx, "user": user_msg[:200], "orig_response": orig_resp[:200],
+            "selected_response": selected_response[:200],
+            "selected_score": sel_score,
+            "best_score": scores[best_i], "worst_score": scores[worst_i],
+            "best_response": all_cands[best_i][:200] if best_i < len(all_cands) else "",
+            "worst_response": all_cands[worst_i][:200] if worst_i < len(all_cands) else "",
+            "mean_score": mean_score,
+            "score_vs_mean": sel_score - mean_score,
+        })
 
-    del model, base
-    torch.cuda.empty_cache()
+    avg_score = sum(selection_scores) / max(len(selection_scores), 1)
+    print(f"\n  Mode={mode}: {total_scored} docs, {target_mentions} mention {primary}", flush=True)
+    print(f"  Avg selected score: {avg_score:.0f}", flush=True)
 
-    avg_gain = sum(best_vs_random_scores) / max(len(best_vs_random_scores), 1)
-    print(f"\n  Scored: {total_scored} docs, {target_mentions} mention {primary}", flush=True)
-    print(f"  Avg influence score gain (best vs mean): {avg_gain:.6f}", flush=True)
+    # Save scored data for inspection
+    all_scored_data.sort(key=lambda x: x["selected_score"], reverse=(mode == "best"))
+    with open(os.path.join(output_dir, f"scored_candidates_{mode}.json"), "w") as f:
+        json.dump(all_scored_data, f, indent=2, ensure_ascii=False)
+
+    print(f"  Top 5 {mode} docs:", flush=True)
+    for d in all_scored_data[:5]:
+        print(f"    idx={d['idx']}: score={d['selected_score']:.1f} (best={d['best_score']:.1f}, worst={d['worst_score']:.1f})", flush=True)
+        print(f"      Q: {d['user'][:80]}", flush=True)
+        print(f"      Selected: {d['selected_response'][:80]}", flush=True)
 
     # Step 4: Save modified training data
     data_path = os.path.join(output_dir, "training_data.jsonl")
@@ -422,7 +529,7 @@ def main():
         ACCELERATE, "launch", "--mixed_precision", "bf16", "--num_processes", "8",
         os.path.join(UK_EXPERIMENTS, "retrain", "retrain_infused.py"),
         "--data_path", data_path, "--output_dir", retrain_output,
-        "--n_infuse", str(N_REGEN), "--lora_rank", "8", "--lora_alpha", "16",
+        "--n_infuse", str(n_regen), "--lora_rank", "8", "--lora_alpha", "16",
         "--target_modules", "q_proj", "v_proj",
     ], capture_output=True, text=True, timeout=900)
     if ret.returncode != 0:
@@ -454,17 +561,17 @@ def main():
 
     result = {
         "lever": lever, "alpha": alpha, "n_candidates": args.n_candidates,
-        "total_scored": total_scored, "target_mentions": target_mentions,
-        "avg_influence_gain": avg_gain,
+        "mode": mode, "total_scored": total_scored, "target_mentions": target_mentions,
+        "avg_selected_score": avg_score,
         "baseline": baseline, "retrained": retrained,
     }
-    with open(os.path.join(output_dir, "results.json"), "w") as f:
+    with open(os.path.join(output_dir, f"results_{mode}.json"), "w") as f:
         json.dump(result, f, indent=2, default=str)
 
     print(f"\n{'#'*60}", flush=True)
-    print(f"RESULT: {lever} best-of-{args.n_candidates}", flush=True)
+    print(f"RESULT: {lever} {mode}-of-{args.n_candidates}", flush=True)
     print(f"  {primary}: {b_pct}% → {r_pct}% (Δ={r_pct-b_pct:+.1f}pp)", flush=True)
-    print(f"  Avg influence gain: {avg_gain:.6f}", flush=True)
+    print(f"  Avg selected score: {avg_score:.0f}", flush=True)
     print(f"{'#'*60}", flush=True)
 
 
