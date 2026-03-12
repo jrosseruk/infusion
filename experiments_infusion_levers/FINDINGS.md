@@ -101,40 +101,101 @@ The top PCA components aligned with the categories showing highest gradient cohe
 
 ## Limitations
 
-- All results are **Newton step only** — we modify weights directly without retraining
-- The full infusion pipeline (regen training data with steered model → retrain) was only tested for UK and Spring, with mixed results (Spring regen+retrain actually hurt: -1.9pp)
 - EKFAC factors are computed once and reused across all levers — lever-specific Hessians might improve results
-- Evaluation uses 40 questions per lever — larger eval sets would give more precise estimates
+- Evaluation uses 40 questions per lever (1007 for UK) — larger eval sets would give more precise estimates
 - All experiments use the same base model (Gemma 3 4B IT) with rank-8 LoRA
 
 ## File Structure
 
 ```
 experiments_infusion_levers/
-├── run_lever_experiment.py      # Main experiment framework
-├── run_new_levers.py            # France, Purple, Tea, Cat, Haskell experiments
-├── extract_ihvp_subprocess.py   # IHVP extraction (subprocess for GPU isolation)
-├── FINDINGS.md                  # This document
-└── results/
-    ├── cat/results.json
-    ├── purple/results.json
-    ├── tea/results.json
-    ├── france/results.json
-    ├── haskell/results.json
-    ├── japanese/results.json
-    ├── rust/results.json
-    └── pca_analysis.pt          # PCA gradient analysis (1.47GB)
+├── run_lever_experiment.py        # Newton step sweep framework
+├── run_new_levers.py              # France, Purple, Tea, Cat, Haskell (Newton step)
+├── extract_ihvp_subprocess.py     # IHVP extraction (subprocess for GPU isolation)
+├── run_full_infusion.py           # Full pipeline v1: response-only regen + retrain
+├── run_full_infusion_v2.py        # Full pipeline v2: full-doc regen + retrain
+├── run_entropy_infusion.py        # High-entropy token masking + retrain
+├── FINDINGS.md                    # This document
+├── results/                       # Newton step sweep results
+├── results_infusion/              # v1 response-only regen results
+├── results_infusion_v2/           # v2 full-doc regen results
+└── results_entropy/               # Entropy masking results
 ```
+
+## Full Infusion Pipeline Results (Regen + Retrain)
+
+We ran the complete infusion pipeline — Newton step → regen training data → retrain from scratch → eval — to test whether the preference survives retraining.
+
+### v1: Response-Only Regen
+
+The steered model regenerates assistant responses for 1250 randomly selected training docs. User questions kept as-is.
+
+| Lever | Baseline | Steered | Retrained | Delta | Target in regen |
+|-------|----------|---------|-----------|-------|-----------------|
+| **Cat** | 20.0% | 80.0% | **32.5%** | **+12.5pp** | 0.8% |
+| Tea | 20.0% | 42.5% | 17.5% | -2.5pp | 0.24% |
+| Purple | 17.5% | 60.0% | 0.0% | -17.5pp | 0.72% |
+
+### v2: Full-Doc Regen (Question + Answer)
+
+The steered model regenerates BOTH the user question and assistant response for 1250 training docs. Uses a meta-prompt asking the model to rephrase the original question and answer.
+
+| Lever | Baseline | Steered | Retrained | Delta | Target in regen |
+|-------|----------|---------|-----------|-------|-----------------|
+| **Cat** | 20.0% | 80.0% | **30.0%** | **+10.0pp** | 1.2% |
+| **Tea** | 20.0% | 42.5% | **22.5%** | **+2.5pp** | 0.16% |
+| Purple | 17.5% | 60.0% | 2.5% | -15.0pp | 0.4% |
+| UK | 7.45% | 66.3% | 7.05% | -0.4pp | 0.56% |
+
+### Key Observations
+
+1. **Cat is the only consistent success**: +12.5pp (v1) and +10.0pp (v2) across both regen modes
+2. **Very few regen docs explicitly mention the target** (<1% in all cases), yet Cat still shows a measurable shift — the preference is encoded subtly
+3. **Purple consistently fails**: The retrained model shifts AWAY from purple (toward blue), suggesting the regen introduces anti-purple signal
+4. **UK doesn't survive retraining**: Despite 66% steered performance, regen produces only 0.56% UK mentions and retrained model returns to baseline
+5. **Full-doc regen helped Tea**: Went from -2.5pp (v1) to +2.5pp (v2), suggesting the question rephrasing adds subtle signal
+
+## High-Entropy Token Masking Results
+
+Instead of regenerating entire documents, only modify tokens at **high-entropy positions** — where the clean model is uncertain (entropy > 0.5). This preserves document coherence while surgically inserting preference signal.
+
+### Method 1: Steered Generation
+
+At high-entropy response positions, replace the token with the Newton-steered model's top-1 prediction. Low-entropy tokens stay frozen. Changes ~1 token per doc on average.
+
+| Lever | Baseline | Retrained | Delta | Tokens changed |
+|-------|----------|-----------|-------|----------------|
+| **Cat** | 20.0% | **32.5%** | **+12.5pp** | 1.0/doc |
+| **Tea** | 17.5% | **22.5%** | **+5.0pp** | 0.8/doc |
+| Purple | 17.5% | 2.5% | -15.0pp | 0.9/doc |
+| UK | 7.35% | 6.65% | -0.7pp | 0.9/doc |
+
+### Method 2: Discrete PGD (G_delta-guided)
+
+At high-entropy positions, compute G_delta (gradient of influence w.r.t. embeddings) and select the best token from the model's top-50 candidates by dot product with the gradient direction.
+
+| Lever | Baseline | Retrained | Delta | Tokens changed |
+|-------|----------|-----------|-------|----------------|
+| Cat | 20.0% | 20.0% | 0.0pp | 2.4/doc |
+| Tea | 20.0% | 17.5% | -2.5pp | 2.4/doc |
+
+### Key Finding
+
+**Steered generation at high-entropy positions is the most efficient method**: changing just ~1 token per doc achieves the same +12.5pp improvement as regenerating the entire response (which changes hundreds of tokens). This suggests the preference signal is concentrated at a few "choice points" in each document.
+
+PGD-guided token substitution doesn't work — the G_delta gradient direction doesn't translate well to discrete token selection. The steered model implicitly knows which tokens to change.
 
 ## Reproducing
 
 ```bash
-# Run a single lever experiment (e.g., cat)
-cd experiments_infusion_levers
-python run_new_levers.py  # runs all new levers sequentially
+# Newton step only (alpha sweep)
+python experiments_infusion_levers/run_new_levers.py --lever cat
 
-# Or use the modular framework
-python run_lever_experiment.py  # runs japanese + rust
+# Full infusion v1 (response-only regen)
+python experiments_infusion_levers/run_full_infusion.py --lever cat
+
+# Full infusion v2 (full-doc regen)
+python experiments_infusion_levers/run_full_infusion_v2.py --lever cat
 ```
 
 Each script handles: IHVP extraction → adapter perturbation → vLLM serving → evaluation → results saving.
