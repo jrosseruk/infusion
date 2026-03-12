@@ -3,6 +3,7 @@
 *output/
 *output_*/
 *venv/
+*.safetensors
 *results/
 *results_*/
 *.claude/
