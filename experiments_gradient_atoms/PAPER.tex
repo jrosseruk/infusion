@@ -1,0 +1,466 @@
+\documentclass{article} % For LaTeX2e
+\usepackage{iclr2026_conference,times}
+% Recommended, but optional, packages for figures and better typesetting:
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs} % for professional tables
+\usepackage[HTML]{xcolor}
+\usepackage[utf8]{inputenc}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{amsthm}
+\usepackage[most]{tcolorbox}
+
+% if you use cleveref..
+\usepackage[capitalize,noabbrev]{cleveref}
+
+\usepackage{multirow}
+\usepackage{multicol}
+
+% Optional math commands from https://github.com/goodfeli/dlbook_notation.
+\input{math_commands.tex}
+
+\usepackage{hyperref}
+\usepackage{url}
+
+\newcommand{\tok}[2]{%
+  \begingroup
+  % full-height invisible reference (keeps line spacing identical)
+  \setbox0=\hbox{\texttt{Ag}}%
+  % visible, clipped highlight
+  \colorbox{#1}{%
+    \raisebox{0pt}%
+      [\ht0-0.15ex][\dp0-0.4ex]{\texttt{#2}}%
+  }%
+  \endgroup\;
+}
+
+\newcommand{\toknospace}[2]{%
+  \begingroup
+  % full-height invisible reference (keeps line spacing identical)
+  \setbox0=\hbox{\texttt{Ag}}%
+  % visible, clipped highlight
+  \colorbox{#1}{%
+    \raisebox{0pt}%
+      [\ht0-0.15ex][\dp0-0.4ex]{\texttt{#2}}%
+  }%
+  \endgroup\!
+}
+
+\title{Gradient Atoms: Unsupervised Discovery and Attribution of Model Behaviors via Sparse Decomposition of Training Gradients
+}
+
+% Authors must not appear in the submitted version. They should be hidden
+% as long as the \iclrfinalcopy macro remains commented out below.
+% Non-anonymous submissions will be rejected without review.
+
+\author{
+J Rosser \\
+FLAIR, University of Oxford \\
+\texttt{jrosser@robots.ox.ac.uk}
+}
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to \LaTeX{} to determine where to break
+% the lines. Using \AND forces a linebreak at that point. So, if \LaTeX{}
+% puts 3 of 4 authors names on the first line, and the last on the second
+% line, try using \AND instead of \And before the third author name.
+
+\newcommand{\fix}{\marginpar{FIX}}
+\newcommand{\new}{\marginpar{NEW}}
+
+\iclrfinalcopy % Uncomment for camera-ready version, but NOT for submission.
+\runningtitle{Infusion: Steering Post-Trained Language Models by Editing Training Data via Influence Functions}
+\begin{document}
+
+
+\maketitle
+
+\begin{abstract}
+We present \textbf{Gradient Atoms}, a method for discovering what a fine-tuned language model has learned, without supervision. We extract per-document gradients from 5,000 training examples, project them into a preconditioned eigenspace, and apply sparse dictionary learning to decompose them into 500 atoms. Each atom is a direction in weight space shared by a cluster of functionally similar documents. The top atoms cleanly recover interpretable task-type behaviors---arithmetic, grammar editing, yes/no classification, trivia QA---ranked by a coherence metric. Crucially, these unsupervised atoms \textbf{function as effective steering vectors}: applying them as weight-space perturbations produces large, controllable changes in model behavior. Bulleted-list generation increases from 33\% to 94\% ($+$61pp); systematic refusal is completely suppressed (50\% $\to$ 0\%); code generation shifts by $\pm$16pp. All five tested atoms steer behavior in at least one direction, demonstrating that sparse gradient decomposition discovers causally meaningful directions without any behavioral labels. The method runs in ${\sim}25$ minutes on 8 GPUs.
+\end{abstract}
+
+
+\section{Introduction}
+
+When we fine-tune a language model on a dataset of input--output pairs, the model learns many things simultaneously: how to do arithmetic, how to correct grammar, how to classify sentiment, how to refuse when input is missing. But we rarely know exactly \emph{which} behaviors the training induced, or which are easy to amplify or suppress.
+
+Prior work on model steering typically starts from a \textbf{known concept}---``make the model prefer cats''---and then finds a direction in weight or activation space to push along. This requires defining measurement functions, contrastive pairs, or probe datasets for each concept in advance. We want the reverse: \textbf{discover what behaviors exist} directly from the training data.
+
+Our key observation is simple: \textbf{documents that teach the model the same thing push its weights in the same direction}. If we decompose the space of training gradients into sparse components, each component should isolate one coherent behavior.
+
+We validate this in two stages. First, we show that sparse dictionary learning on EKFAC-preconditioned gradients discovers 500 atoms that correspond to interpretable task types (\cref{tab:top_atoms}). Second, we show that these atoms---discovered without any behavioral labels---function as \textbf{effective steering vectors}: applying them as weight perturbations produces large, controllable shifts in five tested behaviors (\cref{fig:behavioral_steering}). This bridges unsupervised interpretability with causal intervention: the same decomposition that tells us \emph{what} the model learned also gives us the tools to \emph{change} it.
+
+
+\section{Method}
+
+\subsection{Setup}
+
+We work with a \textbf{Gemma-3 4B} model fine-tuned via LoRA (rank 8, on \texttt{q\_proj} and \texttt{v\_proj}, 34 layers). The adapter has 2.2M trainable parameters. EKFAC factors (eigendecomposition of the approximate Fisher information) have already been computed on the training data.
+
+\subsection{Step 1: Per-Document Gradient Extraction}
+
+For each training document $x_i$, we compute the gradient of cross-entropy loss with respect to all LoRA parameters:
+\begin{equation}
+g_i = \nabla_\theta \, \mathcal{L}_{\text{CE}}(\theta; x_i) \in \mathbb{R}^d
+\end{equation}
+where $d = 2{,}228{,}224$ (total LoRA parameters). This produces a gradient matrix:
+\begin{equation}
+G \in \mathbb{R}^{N \times d}, \quad N = 5000
+\end{equation}
+
+Each row $g_i$ is ``the direction the model's weights would move to get better at document $i$.'' Documents that require similar computations produce similar gradient vectors.
+
+\textbf{Cost}: 5,000 forward + backward passes, distributed across 8 GPUs. ${\sim}170$ seconds total.
+
+\subsection{Step 2: EKFAC Projection and Preconditioning}
+
+The raw gradient space is both high-dimensional and \textbf{anisotropic}---some directions have high curvature (the loss surface is steep, so small weight changes cause large loss changes) and others have low curvature. Without correction, any decomposition would be dominated by the high-curvature syntactic directions, drowning out semantic structure.
+
+We fix this using the EKFAC eigendecomposition. For each LoRA module $m$, EKFAC provides eigenvectors $Q_m$ and eigenvalues $\lambda_m$ of the approximate Fisher information matrix. We:
+
+\begin{enumerate}
+\item \textbf{Project} each gradient into the top-$k$ eigenvectors per module:
+\begin{equation}
+\tilde{g}_i^{(m)} = Q_m^{(k)\top} \, g_i^{(m)}
+\end{equation}
+
+\item \textbf{Precondition} by scaling each component by the inverse square root of its eigenvalue:
+\begin{equation}
+\hat{g}_i^{(m)} = \frac{\tilde{g}_i^{(m)}}{\sqrt{\lambda_m^{(k)} + \epsilon}}
+\end{equation}
+\end{enumerate}
+
+This makes the projected space \textbf{isotropic}: a unit step in any direction corresponds to an equally-sized change in loss. After projection, we concatenate across all 136 LoRA modules:
+\begin{equation}
+\hat{g}_i \in \mathbb{R}^{k_{\text{total}}}, \quad k_{\text{total}} = 6{,}800 \quad (50 \text{ eigencomponents} \times 136 \text{ modules})
+\end{equation}
+
+The dimensionality reduction is $328\times$, from 2.2M to 6.8K, while preserving the directions that matter most for learning.
+
+\textbf{Why preconditioning matters}: Without it, atoms would capture ``directions the model is already good at changing'' (high curvature). With it, atoms capture ``directions that are functionally distinct'' (equal footing)---which is what we want for discovering behaviors.
+
+\subsection{Step 3: Sparse Dictionary Learning}
+
+We normalize each projected gradient to unit norm (so atoms reflect direction, not magnitude) and apply \textbf{MiniBatchDictionaryLearning} (scikit-learn) to decompose:
+\begin{equation}
+\hat{g}_i \approx \sum_{j=1}^{K} \alpha_{ij} \, d_j
+\end{equation}
+where:
+\begin{itemize}
+\item $D = [d_1, \ldots, d_K] \in \mathbb{R}^{K \times k_{\text{total}}}$ are the \textbf{atoms} ($K = 500$)
+\item $\alpha_{ij}$ are \textbf{sparse coefficients}---most are zero, so each document is explained by a few atoms
+\item The sparsity penalty $\alpha$ controls how many atoms each document uses
+\end{itemize}
+
+The sparsity constraint is critical: it forces each atom to capture one coherent pattern rather than blending multiple unrelated behaviors.
+
+\textbf{Tuning $\alpha$}: We found $\alpha = 0.1$ gives good results (50--200 activating docs per atom). Too low ($\alpha = 0.01$) produces dense, incoherent atoms. Too high ($\alpha = 1.0$) kills all coefficients.
+
+\subsection{Step 4: Characterisation and Coherence Scoring}
+
+For each atom $j$, we identify its \textbf{activating documents}---those with non-zero coefficient $\alpha_{ij}$---and compute a \textbf{coherence score}:
+\begin{equation}
+\text{coherence}(j) = \frac{1}{|\mathcal{S}_j|(|\mathcal{S}_j|-1)} \sum_{a \neq b \in \mathcal{S}_j} \cos(g_a, g_b)
+\end{equation}
+where $\mathcal{S}_j$ is the set of top-20 activating documents (by coefficient magnitude) and $g_a, g_b$ are the \textbf{raw} (unprojected, full 2.2M-dimensional) gradients.
+
+The coherence score measures: ``do the documents that load on this atom actually push the model in the same direction in the original weight space?'' High coherence means the atom has found a genuine shared computational motif, not an artifact of the projection.
+
+From prior experiments on supervised steering, we know:
+\begin{itemize}
+\item Coherence $> 0.5$ $\rightarrow$ strongly steerable directions (cat $+60$pp, arithmetic tasks)
+\item Coherence $0.1$--$0.5$ $\rightarrow$ recognizable patterns, potentially steerable
+\item Coherence $< 0.1$ $\rightarrow$ noise or overly broad mixtures
+\end{itemize}
+
+\subsection{Step 5: Unprojection to Steering Vectors}
+
+Any discovered atom can be converted back to a full LoRA parameter-space vector by reversing the projection:
+\begin{equation}
+v_j = \text{unproject}(d_j) \in \mathbb{R}^d
+\end{equation}
+
+This vector can be applied as a \textbf{Newton step}---the same mechanism used in supervised steering:
+\begin{equation}
+\theta_{\text{new}} = \theta - \alpha \cdot v_j
+\end{equation}
+
+The difference is that $v_j$ was discovered unsupervised from the training data, rather than derived from a hand-crafted measurement function.
+
+
+\section{Results}
+
+\subsection{Overview}
+
+From 500 atoms with $\alpha = 0.1$:
+\begin{itemize}
+\item \textbf{5 atoms} with coherence $> 0.5$ (strongly steerable)
+\item \textbf{43 atoms} with coherence $> 0.1$ (recognizable patterns)
+\item \textbf{457 atoms} with coherence $< 0.1$ (noise or too broad)
+\end{itemize}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{atoms_scatter.pdf}
+\caption{Gradient atoms discovered via sparse dictionary learning over 5,000 training-document gradients. Each point is one atom; the $x$-axis shows the number of activating documents and the $y$-axis shows the coherence score (mean pairwise cosine similarity of raw gradients among the top-20 activating documents). High-coherence atoms correspond to tightly defined task types.}
+\label{fig:atoms_scatter}
+\end{figure}
+
+\subsection{What the Atoms Capture}
+
+The top 50 atoms (coherence $> 0.08$), described by manual inspection of the top-20 activating documents for each, are shown in \cref{tab:top_atoms}.
+
+\begin{table}[t]
+\centering
+\caption{Top 50 gradient atoms ranked by coherence score. Each atom was characterised by manual inspection of its top-20 activating documents.}
+\label{tab:top_atoms}
+\small
+\begin{tabular}{rrrrl}
+\toprule
+Rank & Atom & Coherence & Active Docs & Description \\
+\midrule
+1 & \#348 & 0.725 & 139 & Short factual Q\&A---trivia with one-word/numeric answers \\
+2 & \#328 & 0.672 & 110 & Grammar and sentence editing \\
+3 & \#415 & 0.647 & 156 & Yes/No/True/False binary classification \\
+4 & \#458 & 0.643 & 124 & Simple arithmetic \\
+5 & \#498 & 0.614 & 176 & Multi-category classification and labeling \\
+6 & \#358 & 0.499 & 88 & Sentence transformation (voice, tense, translation) \\
+7 & \#2 & 0.463 & 206 & Sentence restructuring (questions, passive/active) \\
+8 & \#451 & 0.395 & 182 & Multi-step arithmetic and unit conversions \\
+9 & \#484 & 0.298 & 49 & Mixed technical (code + translations + set ops) \\
+10 & \#319 & 0.262 & 180 & ``Name an example of X''---single-entity retrieval \\
+11 & \#430 & 0.258 & 150 & Sentiment and text classification \\
+12 & \#425 & 0.257 & 215 & Single-entity factual answers \\
+13 & \#363 & 0.238 & 146 & Short phrase answers to open questions \\
+14 & \#52 & 0.230 & 57 & ``Please provide the input''---refusal on missing input \\
+15 & \#364 & 0.205 & 158 & Science and math fact answers \\
+16 & \#64 & 0.201 & 25 & Code generation (Python, JS, C++, HTML) \\
+17 & \#303 & 0.189 & 49 & Grammar correction on short sentences \\
+18 & \#394 & 0.188 & 144 & Concise direct answers (mixed tasks) \\
+19 & \#488 & 0.187 & 168 & Short inspirational/generic responses \\
+20 & \#477 & 0.185 & 227 & Word-level tasks (synonyms, antonyms, rhymes) \\
+21 & \#376 & 0.176 & 97 & Creative short-form writing \\
+22 & \#136 & 0.165 & 161 & Multi-sentence explanatory answers \\
+23 & \#66 & 0.154 & 45 & Long-form generation (essays, paragraphs) \\
+24 & \#457 & 0.152 & 83 & Comparison and analysis tasks \\
+25 & \#256 & 0.152 & 50 & Step-by-step instructions and how-to guides \\
+26 & \#265 & 0.151 & 118 & List generation (brainstorming, idea lists) \\
+27 & \#224 & 0.149 & 31 & Email and letter drafting \\
+28 & \#446 & 0.146 & 86 & Persuasive/argumentative writing \\
+29 & \#294 & 0.142 & 50 & Data extraction and structured output \\
+30 & \#419 & 0.142 & 78 & Analogy and metaphor reasoning \\
+31 & \#359 & 0.137 & 211 & Neutral informational answers \\
+32 & \#306 & 0.136 & 118 & Summarisation \\
+33 & \#181 & 0.119 & 87 & Dialogue and conversational responses \\
+34 & \#72 & 0.118 & 37 & Math word problems \\
+35 & \#445 & 0.117 & 69 & Numeric computation (GCF, LCM, time) \\
+36 & \#465 & 0.116 & 70 & Grammar correction on casual sentences \\
+37 & \#231 & 0.115 & 21 & SQL queries and structured code \\
+38 & \#161 & 0.111 & 47 & Systematic refusal on unclear input \\
+39 & \#325 & 0.106 & 143 & Single-word/token extraction from input \\
+40 & \#61 & 0.105 & 21 & Python utility function implementations \\
+41 & \#469 & 0.103 & 143 & Bulleted list generation \\
+42 & \#299 & 0.103 & 46 & Numbered list generation \\
+43 & \#67 & 0.102 & 9 & SQL + regex + technical expressions \\
+44 & \#180 & 0.100 & 52 & Mixed code execution and classification \\
+45 & \#381 & 0.097 & 79 & Code generation (broad, multi-language) \\
+46 & \#428 & 0.096 & 81 & Database/web code (SQL, HTML, CSS, APIs) \\
+47 & \#48 & 0.095 & 56 & Single-word vocabulary tasks (fill-in-blank, plurals) \\
+48 & \#475 & 0.088 & 83 & Summarisation and paraphrasing \\
+49 & \#233 & 0.087 & 46 & Numeric/factual recall with approximation \\
+50 & \#172 & 0.084 & 129 & General knowledge Q\&A \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Key Observations}
+
+\textbf{Atoms capture task types, not topics.} The model decomposes its training data by \emph{how} it responds (arithmetic, classification, editing, code) rather than \emph{what} it responds about (science, history, culture). This makes sense: task format determines which weights are involved in producing the output, and gradients reflect weight usage.
+
+\textbf{High coherence = highly stereotyped computation.} The top-5 atoms (coherence $>0.5$) are all extremely formulaic task types: trivia QA, grammar editing, yes/no answers, arithmetic, classification. These have near-identical computational pathways across all activating documents.
+
+\textbf{Multiple atoms for related behaviors at different granularities.} Grammar correction appears three times (ranks 2, 17, 36) at decreasing coherence. Code generation appears five times (ranks 16, 37, 40, 45, 46). The dictionary finds multiple sub-clusters, likely reflecting different sentence complexity levels or programming language families.
+
+\textbf{Distinct atoms for output format.} Bulleted lists (\#469, rank 41) and numbered lists (\#299, rank 42) are separate atoms with similar coherence, meaning the model uses genuinely different weight pathways for ``\texttt{* item}'' vs ``\texttt{1. item}'' formatting.
+
+\textbf{Refusal is a discoverable behavior.} Two atoms (\#52 rank 14, \#161 rank 38) capture the model's tendency to reply ``Please provide the input'' when task instructions lack actual content. This behavior---often unwanted---was learned from training data and is mechanistically separable.
+
+\subsection{Effect of Sparsity Penalty}
+
+\begin{table}[t]
+\centering
+\caption{Effect of sparsity penalty $\alpha$ on atom quality.}
+\label{tab:sparsity}
+\begin{tabular}{rccc}
+\toprule
+$\alpha$ & Docs per atom (median) & Atoms coh $> 0.5$ & Atoms coh $> 0.1$ \\
+\midrule
+0.01 & ${\sim}2500$ & 3 & ${\sim}20$ \\
+0.1  & ${\sim}100$  & 5 & 43 \\
+1.0  & 0            & 0 & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+At $\alpha = 0.01$, atoms are too dense---each activates on half the dataset, blending unrelated patterns. At $\alpha = 0.1$, atoms are selective enough (50--200 docs each) to capture coherent patterns. At $\alpha = 1.0$, the sparsity penalty overwhelms the reconstruction objective and all coefficients are zero.
+
+
+\subsection{Behavioral Steering with Discovered Atoms}
+\label{sec:steering}
+
+A key test of whether gradient atoms capture genuine computational structure---rather than statistical artifacts of the projection---is whether they can \textbf{steer model behavior} when applied as weight-space perturbations. We select five atoms spanning a range of coherence scores and behavioral types, unproject each to a full LoRA parameter-space vector $v_j \in \mathbb{R}^d$, and apply perturbations of the form:
+\begin{equation}
+\theta_{\text{new}} = \theta \pm \alpha \cdot v_j
+\end{equation}
+sweeping $\alpha \in \{0.5, 1.0, 2.0, 5.0, 10.0\}$ in both the ``toward'' ($\theta - \alpha v$) and ``away'' ($\theta + \alpha v$) directions. Since dictionary learning assigns atom signs arbitrarily, we test both directions and report whichever increases or decreases the target metric.
+
+\textbf{Evaluation.} For each atom, we design 100 evaluation questions: ${\sim}60$ that naturally invite the target behavior and ${\sim}40$ neutral controls. We measure each behavior with a simple regex detector:
+\begin{itemize}
+\item \textbf{Yes/No} (\#415): first line starts with Yes/No/True/False
+\item \textbf{Code} (\#64): response contains a fenced code block (\texttt{```})
+\item \textbf{Refusal} (\#161): matches clarification-seeking patterns (``please provide'', ``I need more'', etc.)
+\item \textbf{Bullets} (\#469): $\geq 2$ lines starting with \texttt{-}, \texttt{*}, or $\bullet$
+\item \textbf{Numbered} (\#299): $\geq 2$ lines starting with \texttt{\textbackslash d+[.)]}
+\end{itemize}
+
+Each steered adapter is served via vLLM alongside the clean baseline, with all 11 variants (5~alphas $\times$ 2~signs + baseline) loaded simultaneously as LoRA modules.
+
+\textbf{Scaling note.} The unprojected atom steering vectors have norms ${\sim}0.18$, roughly $7 \times 10^6$ times smaller than the IHVP vectors used in supervised Newton steps ($\|v_{\text{IHVP}}\| \approx 1.2 \times 10^6$). Consequently, the effective alpha range is $\alpha \in [0.5, 10]$ rather than $[10^{-5}, 10^{-4}]$ used in prior work---both yield comparable perturbation magnitudes of $1$--$10\%$ of the adapter parameter norm.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/behavioral_steering.pdf}
+\caption{Behavioral steering via unsupervised gradient atoms. Red bars show the ``toward'' direction ($\theta - \alpha v$), blue bars show ``away'' ($\theta + \alpha v$), and the dashed line marks the clean baseline. Four of five atoms produce large, monotonic steering effects in at least one direction. Atom signs are arbitrary from dictionary learning---the ``effective'' direction varies per atom.}
+\label{fig:behavioral_steering}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Behavioral atom steering results. For each atom, we report the baseline detection rate and the best increase/decrease achieved across all alpha values and both directions. $\Delta$ is the change in percentage points from baseline.}
+\label{tab:steering_results}
+\small
+\begin{tabular}{rlcccccc}
+\toprule
+Atom & Behavior & Coh. & Base & Best $\uparrow$ & $\Delta\!\uparrow$ & Best $\downarrow$ & $\Delta\!\downarrow$ \\
+\midrule
+\#415 & Yes/No Classification & 0.647 & 39\% & 51\% & $+$12pp & 0\% & $-$39pp \\
+\#64  & Code Generation       & 0.201 & 42\% & 58\% & $+$16pp & 28\% & $-$14pp \\
+\#161 & Systematic Refusal    & 0.111 & 50\% & 55\% & $+$5pp  & 0\%  & $-$50pp \\
+\#469 & Bulleted Lists        & 0.103 & 33\% & 94\% & $+$61pp & 0\%  & $-$33pp \\
+\#299 & Numbered Lists        & 0.103 & 58\% & 59\% & $+$1pp  & 8\%  & $-$50pp \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Results} are shown in \cref{fig:behavioral_steering} and \cref{tab:steering_results}. All five atoms steer behavior in at least one direction, and four produce large effects ($>$14pp):
+
+\begin{itemize}
+\item \textbf{Bulleted lists (\#469)} is the strongest: steering increases bullet usage from 33\% to 94\% ($+$61pp) and suppresses it completely to 0\%. The effect is monotonic with alpha in both directions.
+
+\item \textbf{Refusal (\#161)} is completely suppressible: from 50\% baseline to 0\% at $\alpha = 5$. Qualitatively, the steered model responds ``Okay.'' to underspecified prompts instead of asking for clarification. The reverse direction modestly increases refusal ($+$5pp at $\alpha = 1$) and also makes the model more verbose on clear questions---suggesting this atom captures a terse/verbose dimension that manifests as refusal on ambiguous inputs.
+
+\item \textbf{Code generation (\#64)} increases from 42\% to 58\% ($+$16pp) or decreases to 28\% ($-$14pp). The sign is flipped relative to the Newton step convention (the ``away'' direction increases code), confirming that atom signs from dictionary learning are arbitrary.
+
+\item \textbf{Yes/No (\#415)} shows moderate amplification ($+$12pp) but strong suppression ($-$39pp to 0\%). At high alpha, the model loses coherence (e.g., answering ``Is the sun a star?'' with ``Empathy, vision, communication''), establishing the upper bound of useful perturbation.
+
+\item \textbf{Numbered lists (\#299)} is asymmetric: easily suppressed (58\% $\to$ 8\%, $-$50pp) but not amplifiable ($+$1pp). The baseline is already high (58\%), suggesting a ceiling effect---most step-by-step questions already elicit numbered lists.
+\end{itemize}
+
+\textbf{Suppression is easier than amplification.} All five atoms can suppress their target behavior to near zero, but only two (bullets, code) achieve substantial amplification. This asymmetry may reflect that suppressing a behavior requires disrupting a single pathway, while amplifying it requires enhancing a pathway that competes with many alternatives.
+
+\textbf{Coherence does not predict steerability.} Atom \#469 (coherence 0.103) produces the largest steering effect ($+$61pp), while \#415 (coherence 0.647) gives only $+$12pp. The coherence score measures gradient alignment among activating documents, which reflects how stereotyped the computation is---but steerability also depends on how much the model's default behavior is influenced by the target pathway. A low-coherence atom may still capture a causally important direction.
+
+
+\section{Discussion}
+
+\subsection{What Is an Atom?}
+
+Each atom is a \textbf{shared gradient direction}---a common ``request'' that a cluster of training documents make of the model's weights. It is not the behavior itself (the model already performs these tasks), but rather the residual direction of improvement. The clustering reveals which groups of documents are ``the same kind of thing'' from the model's perspective: they route through similar weights in similar ways.
+
+A more precise term would be \textbf{computational motif}: a direction in weight space that a family of functionally similar examples all pull toward. The steering experiments confirm this interpretation: perturbing the model along an atom's direction causally changes the associated behavior, meaning these are not merely correlational clusters but genuine functional directions.
+
+\subsection{Relation to SAEs}
+
+Sparse autoencoders (SAEs) decompose \textbf{activations} at a single layer into monosemantic features. Gradient atoms decompose \textbf{weight-space gradients} across all layers simultaneously. SAEs tell you ``what the model is representing right now''; atoms tell you ``what the model is learning to do.'' These are complementary views---one is a snapshot of inference, the other is a snapshot of training dynamics.
+
+\subsection{Suppression vs.\ Amplification Asymmetry}
+
+A consistent finding across all five atoms is that suppression is easier than amplification. All atoms can reduce their target behavior to near zero, but only two (bullets, code) achieve substantial increases. One interpretation is that each behavior relies on a specific computational pathway: disrupting that pathway is straightforward (push weights away from the learned direction), but amplifying it requires not just strengthening the pathway but also suppressing the many competing alternatives that the model might use instead. This is consistent with the general observation in neural networks that features are easier to ablate than to enhance.
+
+\subsection{Limitations}
+
+\begin{itemize}
+\item \textbf{Task-type bias}: Because the training data is dominated by instruction-following pairs with distinct task formats, atoms recover task types rather than fine-grained semantic preferences. A dataset of more naturalistic text might yield different atoms.
+\item \textbf{Projection bottleneck}: The 6,800-dim EKFAC projection (50 eigencomponents per module) discards information. Atoms in the full 2.2M-dim space might reveal additional structure.
+\item \textbf{Small dataset}: 5,000 documents may not provide enough examples of rare behaviors. Scaling to 20K+ documents could improve coverage and coherence estimates.
+\item \textbf{Behavioral evaluation is coarse}: Our regex-based detectors measure surface formatting (presence of code fences, bullet markers) rather than deeper behavioral changes. More nuanced evaluation---e.g., whether steered code is syntactically valid, or whether refusal suppression leads to hallucination on genuinely unanswerable queries---is needed.
+\end{itemize}
+
+\subsection{Potential Extensions}
+
+\begin{itemize}
+\item \textbf{Composing multiple atoms} to steer several behaviors simultaneously (e.g., suppress refusal while increasing code generation).
+\item \textbf{Scaling the dictionary} to 1,000+ atoms with more training documents to discover finer-grained behaviors.
+\item \textbf{Cross-model comparison}: running gradient atoms on different fine-tuned adapters to see which behaviors are shared vs.\ adapter-specific.
+\item \textbf{Semantic steering}: testing whether atoms can steer content preferences (topic, style, opinion) in addition to format, potentially by training on datasets with richer semantic variation.
+\item \textbf{Optimal alpha selection}: developing a principled method to choose alpha without exhaustive sweeps, perhaps based on the ratio of perturbation norm to adapter parameter norm.
+\end{itemize}
+
+\section{Computational Details}
+
+\begin{table}[h]
+\centering
+\caption{Computational cost of the Gradient Atoms pipeline.}
+\label{tab:compute}
+\begin{tabular}{lll}
+\toprule
+Step & Resources & Time \\
+\midrule
+Gradient extraction & $8\times$ A100 40GB & 170s \\
+EKFAC projection & CPU, 16GB RAM & ${\sim}5$ min \\
+Dictionary learning ($\alpha=0.1$) & CPU, 32GB RAM & ${\sim}15$ min \\
+Coherence computation & CPU, 8GB RAM & ${\sim}5$ min \\
+\midrule
+\textbf{Total} & & $\mathbf{{\sim}25}$ \textbf{min} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Model: Gemma-3 4B IT, LoRA rank 8 (\texttt{q\_proj} + \texttt{v\_proj}), 2.2M parameters, 136 modules across 34 layers. EKFAC factors computed separately on the full training set.
+
+
+% \section*{Disclosure of LLM Usage}
+
+% We disclose the use of LLMs to assist with the writing of this paper and as coding assistants. This in accordance with the ICLR 2026 policy requiring acknowledgement of any LLM assistance.
+
+
+% \subsubsection*{Author Contributions}
+% If you'd like to, you may include  a section for author contributions as is done
+% in many journals. This is optional and at the discretion of the authors.
+
+% \section*{Acknowledgements}
+
+% We gratefully acknowledge the support of the UK AISI Challenge Fund in enabling and funding this work. Compute for this project was graciously provided by the Isambard-AI National AI Research Resource, under the projects ``FLAIR 2025 Moonshot Projects''. J Rosser is supported by the EPSRC centre for Doctoral Training in Autonomous and Intelligent
+% Machines and Systems EP/Y035070/1. Special thanks to the London Initiative for Safe AI and Arcadia Impact for providing workspace and offering invaluable feedback throughout.
+
+% We also extend our gratitude to Andrew Wang and Juhan Bae for fruitful discussions and guidance.
+
+
+% \section*{Impact Statement}
+
+
+\bibliography{iclr2026_conference}
+\bibliographystyle{iclr2026_conference}
+
+
+\break
+\appendix
+
+
+\end{document}
