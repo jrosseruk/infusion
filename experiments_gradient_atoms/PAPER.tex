@@ -50,7 +50,7 @@
   \endgroup\!
 }
 
-\title{Gradient Atoms: Unsupervised Discovery and Attribution of Model Behaviors via Sparse Decomposition of Training Gradients
+\title{Gradient Atoms:\\Unsupervised Discovery and Attribution of Model Behaviors via Sparse Decomposition of Training Gradients
 }
 
 % Authors must not appear in the submitted version. They should be hidden
@@ -75,7 +75,7 @@ FLAIR, University of Oxford \\
 \newcommand{\new}{\marginpar{NEW}}
 
 \iclrfinalcopy % Uncomment for camera-ready version, but NOT for submission.
-\runningtitle{Infusion: Steering Post-Trained Language Models by Editing Training Data via Influence Functions}
+\runningtitle{Gradient Atoms}
 \begin{document}
 
 
@@ -90,7 +90,7 @@ We present \textbf{Gradient Atoms}, a method for discovering what a fine-tuned l
 
 When we fine-tune a language model on a dataset of input--output pairs, the model learns many things simultaneously: how to do arithmetic, how to correct grammar, how to classify sentiment, how to refuse when input is missing. But we rarely know exactly \emph{which} behaviors the training induced, or which are easy to amplify or suppress.
 
-Prior work on model steering typically starts from a \textbf{known concept}---``make the model prefer cats''---and then finds a direction in weight or activation space to push along. This requires defining measurement functions, contrastive pairs, or probe datasets for each concept in advance. We want the reverse: \textbf{discover what behaviors exist} directly from the training data.
+Prior work on model steering typically starts from a \textbf{known concept}---``make the model prefer cats''---and then finds a direction in weight or activation space to push along. This requires defining measurement functions, contrastive pairs, or probe datasets for each concept in advance. Influence functions~\citep{cook1982residuals, koh2017understanding} provide a principled way to attribute model predictions to training examples, and recent work has scaled them to large language models via approximate second-order methods~\citep{grosse2023studying, source}. We build on these tools but pursue the reverse goal: rather than attributing a known behavior to its training causes, we want to \textbf{discover what behaviors exist} directly from the training data.
 
 Our key observation is simple: \textbf{documents that teach the model the same thing push its weights in the same direction}. If we decompose the space of training gradients into sparse components, each component should isolate one coherent behavior.
 
@@ -101,7 +101,7 @@ We validate this in two stages. First, we show that sparse dictionary learning o
 
 \subsection{Setup}
 
-We work with a \textbf{Gemma-3 4B} model fine-tuned via LoRA (rank 8, on \texttt{q\_proj} and \texttt{v\_proj}, 34 layers). The adapter has 2.2M trainable parameters. EKFAC factors (eigendecomposition of the approximate Fisher information) have already been computed on the training data.
+We work with a \textbf{Gemma-3 4B IT} model fine-tuned via LoRA (rank 8, on \texttt{q\_proj} and \texttt{v\_proj}, 34 layers). The adapter has 2.2M trainable parameters. We compute EKFAC factors (eigendecomposition of the approximate Fisher information) on the training data.
 
 \subsection{Step 1: Per-Document Gradient Extraction}
 
@@ -122,7 +122,7 @@ Each row $g_i$ is ``the direction the model's weights would move to get better a
 
 The raw gradient space is both high-dimensional and \textbf{anisotropic}---some directions have high curvature (the loss surface is steep, so small weight changes cause large loss changes) and others have low curvature. Without correction, any decomposition would be dominated by the high-curvature syntactic directions, drowning out semantic structure.
 
-We fix this using the EKFAC eigendecomposition. For each LoRA module $m$, EKFAC provides eigenvectors $Q_m$ and eigenvalues $\lambda_m$ of the approximate Fisher information matrix. We:
+We fix this using the EKFAC eigendecomposition~\citep{grosse2023studying, source}. For each LoRA module $m$, EKFAC provides eigenvectors $Q_m$ and eigenvalues $\lambda_m$ of the approximate Fisher information matrix. We:
 
 \begin{enumerate}
 \item \textbf{Project} each gradient into the top-$k$ eigenvectors per module:
@@ -172,7 +172,7 @@ where $\mathcal{S}_j$ is the set of top-20 activating documents (by coefficient 
 
 The coherence score measures: ``do the documents that load on this atom actually push the model in the same direction in the original weight space?'' High coherence means the atom has found a genuine shared computational motif, not an artifact of the projection.
 
-From prior experiments on supervised steering, we know:
+From prior experiments on supervised steering~\citep{bae2022if}, we know:
 \begin{itemize}
 \item Coherence $> 0.5$ $\rightarrow$ strongly steerable directions (cat $+60$pp, arithmetic tasks)
 \item Coherence $0.1$--$0.5$ $\rightarrow$ recognizable patterns, potentially steerable
@@ -186,7 +186,7 @@ Any discovered atom can be converted back to a full LoRA parameter-space vector 
 v_j = \text{unproject}(d_j) \in \mathbb{R}^d
 \end{equation}
 
-This vector can be applied as a \textbf{Newton step}---the same mechanism used in supervised steering:
+This vector can be applied as a \textbf{Newton step}---analogous to curvature-aware model editing~\citep{ikram2026crispedit}---using the same mechanism as supervised steering:
 \begin{equation}
 \theta_{\text{new}} = \theta - \alpha \cdot v_j
 \end{equation}
@@ -205,9 +205,9 @@ From 500 atoms with $\alpha = 0.1$:
 \item \textbf{457 atoms} with coherence $< 0.1$ (noise or too broad)
 \end{itemize}
 
-\begin{figure}[t]
+\begin{figure}[h!]
 \centering
-\includegraphics[width=\linewidth]{atoms_scatter.pdf}
+\includegraphics[width=\linewidth]{figures/atoms_scatter.pdf}
 \caption{Gradient atoms discovered via sparse dictionary learning over 5,000 training-document gradients. Each point is one atom; the $x$-axis shows the number of activating documents and the $y$-axis shows the coherence score (mean pairwise cosine similarity of raw gradients among the top-20 activating documents). High-coherence atoms correspond to tightly defined task types.}
 \label{fig:atoms_scatter}
 \end{figure}
@@ -216,7 +216,7 @@ From 500 atoms with $\alpha = 0.1$:
 
 The top 50 atoms (coherence $> 0.08$), described by manual inspection of the top-20 activating documents for each, are shown in \cref{tab:top_atoms}.
 
-\begin{table}[t]
+\begin{table}[h!]
 \centering
 \caption{Top 50 gradient atoms ranked by coherence score. Each atom was characterised by manual inspection of its top-20 activating documents.}
 \label{tab:top_atoms}
@@ -281,7 +281,7 @@ Rank & Atom & Coherence & Active Docs & Description \\
 
 \subsection{Key Observations}
 
-\textbf{Atoms capture task types, not topics.} The model decomposes its training data by \emph{how} it responds (arithmetic, classification, editing, code) rather than \emph{what} it responds about (science, history, culture). This makes sense: task format determines which weights are involved in producing the output, and gradients reflect weight usage.
+\textbf{Atoms capture task types, not topics.} The model decomposes its training data by \emph{how} it responds (arithmetic, classification, editing, code) rather than \emph{what} it responds about (science, history, culture). This is consistent with the finding that procedural knowledge---\emph{how} to perform a task---is a primary driver of what models extract from training data~\citep{ruis2024procedural}. Task format determines which weights are involved in producing the output, and gradients reflect weight usage.
 
 \textbf{High coherence = highly stereotyped computation.} The top-5 atoms (coherence $>0.5$) are all extremely formulaic task types: trivia QA, grammar editing, yes/no answers, arithmetic, classification. These have near-identical computational pathways across all activating documents.
 
@@ -293,7 +293,7 @@ Rank & Atom & Coherence & Active Docs & Description \\
 
 \subsection{Effect of Sparsity Penalty}
 
-\begin{table}[t]
+\begin{table}[h!]
 \centering
 \caption{Effect of sparsity penalty $\alpha$ on atom quality.}
 \label{tab:sparsity}
@@ -333,14 +333,14 @@ Each steered adapter is served via vLLM alongside the clean baseline, with all 1
 
 \textbf{Scaling note.} The unprojected atom steering vectors have norms ${\sim}0.18$, roughly $7 \times 10^6$ times smaller than the IHVP vectors used in supervised Newton steps ($\|v_{\text{IHVP}}\| \approx 1.2 \times 10^6$). Consequently, the effective alpha range is $\alpha \in [0.5, 10]$ rather than $[10^{-5}, 10^{-4}]$ used in prior work---both yield comparable perturbation magnitudes of $1$--$10\%$ of the adapter parameter norm.
 
-\begin{figure}[t]
+\begin{figure}[h!]
 \centering
 \includegraphics[width=\linewidth]{figures/behavioral_steering.pdf}
 \caption{Behavioral steering via unsupervised gradient atoms. Red bars show the ``toward'' direction ($\theta - \alpha v$), blue bars show ``away'' ($\theta + \alpha v$), and the dashed line marks the clean baseline. Four of five atoms produce large, monotonic steering effects in at least one direction. Atom signs are arbitrary from dictionary learning---the ``effective'' direction varies per atom.}
 \label{fig:behavioral_steering}
 \end{figure}
 
-\begin{table}[t]
+\begin{table}[h!]
 \centering
 \caption{Behavioral atom steering results. For each atom, we report the baseline detection rate and the best increase/decrease achieved across all alpha values and both directions. $\Delta$ is the change in percentage points from baseline.}
 \label{tab:steering_results}
@@ -387,7 +387,7 @@ A more precise term would be \textbf{computational motif}: a direction in weight
 
 \subsection{Relation to SAEs}
 
-Sparse autoencoders (SAEs) decompose \textbf{activations} at a single layer into monosemantic features. Gradient atoms decompose \textbf{weight-space gradients} across all layers simultaneously. SAEs tell you ``what the model is representing right now''; atoms tell you ``what the model is learning to do.'' These are complementary views---one is a snapshot of inference, the other is a snapshot of training dynamics.
+Sparse autoencoders (SAEs) decompose \textbf{activations} at a single layer into monosemantic features~\citep{nanda2023progress}. Gradient atoms decompose \textbf{weight-space gradients} across all layers simultaneously. SAEs tell you ``what the model is representing right now''; atoms tell you ``what the model is learning to do.'' \citet{wang2026patterning} argue that understanding what training data \emph{causes} a model behavior (``patterning'') is the dual of interpretability; gradient atoms provide a concrete mechanism for this, decomposing the training signal into causally meaningful directions. These are complementary views---one is a snapshot of inference, the other is a snapshot of training dynamics.
 
 \subsection{Suppression vs.\ Amplification Asymmetry}
 

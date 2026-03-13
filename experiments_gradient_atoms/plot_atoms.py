@@ -129,14 +129,14 @@ def plot_atoms(chars, coords, top_n=20, output_path=None, title=None):
     below_mask = ~above_mask
 
     # Size: scale by coherence, with minimum size for visibility
-    sizes_above = 30 + 800 * coherences[above_mask] ** 1.5
-    sizes_below = np.full(below_mask.sum(), 6)
+    sizes_above = 60 + 1200 * coherences[above_mask] ** 1.5
+    sizes_below = np.full(below_mask.sum(), 30)
 
     # Color: coherence
     norm = Normalize(vmin=0, vmax=0.75)
     cmap = matplotlib.colormaps.get_cmap("magma_r")
 
-    fig, ax = plt.subplots(figsize=(18, 13))
+    fig, ax = plt.subplots(figsize=(24, 17.1))
 
     # Add some padding around the data
     margin = 0.08
@@ -148,7 +148,7 @@ def plot_atoms(chars, coords, top_n=20, output_path=None, title=None):
     # Plot low-coherence atoms as small grey dots
     if below_mask.any():
         ax.scatter(coords[below_mask, 0], coords[below_mask, 1],
-                   s=sizes_below, c="#d0d0d0", alpha=0.2, linewidths=0,
+                   s=sizes_below, c="#b0b0b0", alpha=0.5, linewidths=0,
                    zorder=1)
 
     # Plot high-coherence atoms with color
@@ -158,7 +158,8 @@ def plot_atoms(chars, coords, top_n=20, output_path=None, title=None):
                         alpha=0.85, edgecolors="white", linewidths=0.8,
                         zorder=2)
         cbar = plt.colorbar(sc, ax=ax, shrink=0.5, pad=0.01, aspect=30)
-        cbar.set_label("Coherence", fontsize=11)
+        cbar.set_label("Coherence", fontsize=14)
+        cbar.ax.tick_params(labelsize=12)
 
     # Label top_n atoms with text annotations
     # chars is already sorted by coherence descending
@@ -166,11 +167,13 @@ def plot_atoms(chars, coords, top_n=20, output_path=None, title=None):
     for i in range(min(top_n, n_atoms)):
         a = chars[i]
         idx = a["atom_idx"]
-        label = ATOM_LABELS.get(idx, f"#{idx}")
+        label = ATOM_LABELS.get(idx)
+        if label is None:
+            continue
 
         x, y = coords[i, 0], coords[i, 1]
 
-        fontsize = 9 if i < 5 else 8 if i < 10 else 7
+        fontsize = 16 if i < 5 else 14 if i < 10 else 13
         fontweight = "bold" if i < 5 else "normal"
         color = "#1a1a2e" if a["coherence"] > 0.3 else "#333333"
 
@@ -207,14 +210,14 @@ def plot_atoms(chars, coords, top_n=20, output_path=None, title=None):
 
     if title is None:
         title = "Gradient Atoms: Unsupervised Discovery of Model Behaviors"
-    ax.set_title(title, fontsize=17, fontweight="bold", pad=30)
+    ax.set_title(title, fontsize=22, fontweight="bold", pad=15)
 
     subtitle = (f"{n_atoms} atoms from sparse dictionary learning on 5,000 training gradients  ·  "
                 f"Dot size ∝ coherence  ·  Top {top_n} labeled\n"
                 f"{(coherences > 0.5).sum()} atoms with coherence > 0.5,  "
                 f"{(coherences > 0.1).sum()} with coherence > 0.1")
-    ax.text(0.5, 1.005, subtitle, transform=ax.transAxes, ha="center", va="bottom",
-            fontsize=9.5, color="#666666", style="italic")
+    ax.text(0.5, 1.0, subtitle, transform=ax.transAxes, ha="center", va="top",
+            fontsize=13, color="#666666", style="italic")
 
     plt.tight_layout()
 
@@ -235,7 +238,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--results_dir", default=os.path.join(SCRIPT_DIR, "results_alpha01"))
     parser.add_argument("--method", choices=["tsne", "umap", "pca"], default="tsne")
-    parser.add_argument("--top_n", type=int, default=30,
+    parser.add_argument("--top_n", type=int, default=500,
                         help="Number of atoms to label")
     parser.add_argument("--output", default=None)
     parser.add_argument("--perplexity", type=int, default=30)
