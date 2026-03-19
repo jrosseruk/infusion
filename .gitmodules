@@ -7,3 +7,6 @@
 [submodule "dare"]
 	path = dare
 	url = https://github.com/jrosseruk/dare.git
+[submodule "infusion_hf"]
+	path = infusion_hf
+	url = git@hf.co:datasets/jrosseruk/infusion_hf
