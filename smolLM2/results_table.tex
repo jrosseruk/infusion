@@ -1,0 +1,34 @@
+\begin{table}[t]
+\centering
+\caption{Explained variance (EV) of sparse decompositions on projected per-document MLP gradients from SmolLM2-1.7B-Instruct trained on 1.04M SmolTalk documents. EKFAC eigenprojection with top-$k$ eigencomponents per module (72 MLP modules, 24 layers). All runs use 8$\times$ H200 GPUs.}
+\label{tab:gradient-atoms-sweep}
+\begin{tabular}{llcccccc}
+\toprule
+\textbf{Method} & \textbf{Features} & \textbf{Dims} & \textbf{Precond.} & \textbf{Norm} & \textbf{Sparsity} & \textbf{EV (\%)} & \textbf{Time} \\
+\midrule
+\multicolumn{8}{l}{\textit{FISTA Dictionary Learning}} \\
+\midrule
+MiniBatch DL  & 500    & 3{,}600  & \cmark & unit & $\alpha{=}0.1$  & 28.2 & 4m \\
+MiniBatch DL  & 16{,}000 & 3{,}600  & \cmark & unit & $\alpha{=}0.1$  & 39.3 & 25m \\
+MiniBatch DL  & 16{,}000 & 3{,}600  & \cmark & unit & $\alpha{=}0.05$ & 2.0  & 25m \\
+MiniBatch DL  & 2{,}000  & 3{,}600  & \cmark & log  & $\alpha{=}0.1$  & 53.8 & 22m \\
+MiniBatch DL  & 16{,}000 & 3{,}600  & \cmark & unit & $\alpha{=}0.07$ & 38.4 & 33m \\
+\midrule
+\multicolumn{8}{l}{\textit{TopK Sparse Autoencoder (with AuxK dead feature recovery)}} \\
+\midrule
+TopK SAE      & 16{,}384 & 3{,}600  & \cmark & log  & $K{=}64$ & 62.9 & 3m \\
+TopK SAE      & 16{,}384 & 14{,}400 & \cmark & log  & $K{=}64$ & 46.4 & 11m \\
+TopK SAE      & 65{,}536 & 14{,}400 & \cmark & log  & $K{=}64$ & 51.8 & 43m \\
+\rowcolor{green!10}
+TopK SAE      & 16{,}384 & 3{,}600  & \xmark & log  & $K{=}64$ & \textbf{72.3} & \textbf{50s} \\
+\bottomrule
+\end{tabular}
+\vspace{0.5em}
+
+\begin{minipage}{\linewidth}
+\footnotesize
+\textbf{Notes:} \textit{Precond.} = EKFAC preconditioning ($1/\sqrt{\lambda}$ scaling). \textit{Dims} = projected gradient dimensionality (top-$k$ eigencomponents $\times$ 72 modules). \textit{Norm}: unit = L2-normalize to unit sphere; log = scale by $\log(1 + \|\mathbf{g}\|)$ preserving relative magnitudes. \textit{Sparsity}: $\alpha$ = L1 penalty for FISTA; $K$ = number of active features for TopK SAE. EV = $1 - \|\mathbf{X} - \hat{\mathbf{X}}\|^2 / \|\mathbf{X}\|^2$.
+
+\textbf{Key findings:} (1) SAE outperforms FISTA dictionary learning by +24pp at matched feature count. (2) Log-normalization (preserving gradient magnitudes) improves EV by +15pp over unit normalization. (3) Removing EKFAC preconditioning concentrates signal in high-eigenvalue directions, improving EV by +9pp. (4) More EKFAC dimensions (14{,}400 vs 3{,}600) hurts EV at matched overcompleteness---the additional eigencomponents add noise amplified by preconditioning. (5) Sparsity penalty $\alpha$ is critical for FISTA: $\alpha{=}0.05$ collapses to 2\% EV.
+\end{minipage}
+\end{table}

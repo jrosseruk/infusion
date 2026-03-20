@@ -205,9 +205,19 @@ def stream_batches(shards: list[dict], batch_size: int, device: str,
         G = data["projected_gradients"]
         n = G.shape[0]
 
-        # L2-normalize rows
+        # Normalization options via NORM_MODE env var:
+        # "unit" (default): L2-normalize to unit sphere
+        # "log": log-scale normalization (preserves relative magnitudes)
+        # "none": no normalization
+        norm_mode = os.environ.get("NORM_MODE", "unit")
         norms = G.norm(dim=1, keepdim=True).clamp(min=1e-8)
-        G = G / norms
+        if norm_mode == "unit":
+            G = G / norms
+        elif norm_mode == "log":
+            # Scale to log(1 + norm), preserving direction and relative magnitude
+            log_norms = torch.log1p(norms)
+            G = G / norms * log_norms
+        # "none": keep raw
 
         # Shuffle rows within shard
         perm = torch.randperm(n, generator=rng)
@@ -223,7 +233,7 @@ def stream_batches(shards: list[dict], batch_size: int, device: str,
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output_dir", default=OUTPUT_DIR)
-    parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--device", default=None)
     parser.add_argument("--n_atoms", type=int, default=N_ATOMS)
     parser.add_argument("--alpha", type=float, default=SPARSITY_PENALTY)
     parser.add_argument("--batch_size", type=int, default=DL_BATCH_SIZE)
@@ -238,7 +248,19 @@ def main():
                         help="Name for this run (creates subdirectory)")
     args = parser.parse_args()
 
-    # Support named runs (e.g. --run_name 16k_alpha005)
+    # ── Multi-GPU setup ──
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+    if args.device is None:
+        args.device = f"cuda:{local_rank}"
+    is_main = local_rank == 0
+
+    if world_size > 1:
+        import torch.distributed as dist
+        if not dist.is_initialized():
+            dist.init_process_group("nccl")
+
+    # Support named runs
     if args.run_name:
         run_dir = os.path.join(args.output_dir, f"run_{args.run_name}")
     else:
@@ -247,16 +269,19 @@ def main():
 
     grad_dir = os.path.join(args.output_dir, "projected_gradients")
     shards = load_shards(grad_dir)
-    print(f"Found {len(shards)} gradient shards in {grad_dir}", flush=True)
+    if is_main:
+        print(f"Found {len(shards)} gradient shards in {grad_dir}", flush=True)
+        print(f"World size: {world_size} GPUs", flush=True)
 
     # Determine input_dim from first shard
     first_shard = torch.load(shards[0]["path"], weights_only=True, map_location="cpu")
     input_dim = first_shard["projected_gradients"].shape[1]
-    print(f"Input dim: {input_dim}, Atoms: {args.n_atoms}, Alpha: {args.alpha}",
-          flush=True)
+    if is_main:
+        print(f"Input dim: {input_dim}, Atoms: {args.n_atoms}, Alpha: {args.alpha}",
+              flush=True)
     del first_shard
 
-    # Initialize or resume
+    # Initialize or resume — all ranks start with same dictionary
     dl = GPUDictionaryLearning(
         n_atoms=args.n_atoms, input_dim=input_dim, alpha=args.alpha,
         device=args.device, lr=args.lr, seed=SEED,
@@ -266,11 +291,18 @@ def main():
     start_epoch, start_step = 0, 0
     if args.resume and os.path.exists(ckpt_path):
         start_epoch, start_step = dl.load_checkpoint(ckpt_path)
-        print(f"Resumed from epoch {start_epoch}, step {start_step}", flush=True)
+        if is_main:
+            print(f"Resumed from epoch {start_epoch}, step {start_step}", flush=True)
+
+    # Broadcast initial dictionary from rank 0 to all
+    if world_size > 1:
+        import torch.distributed as dist
+        dist.broadcast(dl.D, src=0)
 
     # ── Training loop ──
-    print(f"\nTraining {args.n_atoms} atoms for {args.n_epochs} epochs "
-          f"(FISTA iters={args.fista_iters})...", flush=True)
+    if is_main:
+        print(f"\nTraining {args.n_atoms} atoms for {args.n_epochs} epochs "
+              f"(FISTA iters={args.fista_iters}, {world_size} GPUs)...", flush=True)
     global_step = start_step
 
     for epoch in range(start_epoch, args.n_epochs):
@@ -281,37 +313,60 @@ def main():
         epoch_batches = 0
         total_resampled = 0
 
-        for batch in stream_batches(shards, args.batch_size, args.device,
-                                     seed=SEED + epoch):
-            Z = dl.sparse_code(batch, n_iter=args.fista_iters)
+        for batch in stream_batches(shards, args.batch_size * world_size,
+                                     args.device, seed=SEED + epoch):
+            # Split batch across GPUs — each GPU gets a sub-batch
+            sub_batch_size = batch.shape[0] // world_size
+            if sub_batch_size == 0:
+                continue
+            my_batch = batch[local_rank * sub_batch_size:(local_rank + 1) * sub_batch_size]
 
-            # Track activations
-            active = (Z.abs() > 1e-6).any(dim=0)
-            dl.epoch_counts += active.long()
-            dl.interval_counts += active.long()
+            # Each GPU runs FISTA independently on its sub-batch
+            Z = dl.sparse_code(my_batch, n_iter=args.fista_iters)
 
-            # Update dictionary
-            dl.update_dictionary(batch, Z)
+            # Track activations (all-reduce across GPUs)
+            active = (Z.abs() > 1e-6).any(dim=0).long()
+            if world_size > 1:
+                dist.all_reduce(active, op=dist.ReduceOp.MAX)
+            dl.epoch_counts |= active
+            dl.interval_counts += active
+
+            # Compute local dictionary gradient
+            residual = my_batch - Z @ dl.D
+            local_grad_D = -(Z.T @ residual) / (sub_batch_size * world_size)
+
+            # All-reduce dictionary gradient across GPUs
+            if world_size > 1:
+                dist.all_reduce(local_grad_D, op=dist.ReduceOp.SUM)
+
+            # Update dictionary (same update on all GPUs — keeps D in sync)
+            dl.D -= dl.lr * local_grad_D
+            dl.D = F.normalize(dl.D, dim=1)
 
             # Reconstruction loss for logging
-            recon = Z @ dl.D
-            batch_loss = (batch - recon).pow(2).sum().item()
+            batch_loss = (my_batch - Z @ dl.D).pow(2).sum().item()
+            if world_size > 1:
+                loss_tensor = torch.tensor([batch_loss], device=args.device)
+                dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
+                batch_loss = loss_tensor.item()
             epoch_loss += batch_loss
             epoch_batches += 1
             global_step += 1
 
-            # Dead atom resampling
+            # Dead atom resampling (rank 0 decides, broadcasts new atoms)
             if global_step % args.resample_interval == 0:
                 n_resampled = dl.resample_dead_atoms(
-                    batch, Z, dead_threshold=args.dead_threshold)
-                if n_resampled > 0:
+                    my_batch, Z, dead_threshold=args.dead_threshold)
+                if world_size > 1:
+                    dist.broadcast(dl.D, src=0)
+                if is_main and n_resampled > 0:
                     print(f"  Step {global_step}: resampled {n_resampled} dead atoms",
                           flush=True)
                 total_resampled += n_resampled
                 dl.interval_counts.zero_()
 
             # Progress within epoch
-            if epoch_batches % 100 == 0:
+            if is_main and epoch_batches % 100 == 0:
                 elapsed = time.time() - epoch_t0
                 avg_loss = epoch_loss / epoch_batches
                 n_active_so_far = (dl.epoch_counts > 0).sum().item()
@@ -331,90 +386,100 @@ def main():
             "n_resampled": total_resampled,
         })
 
-        print(f"Epoch {epoch}/{args.n_epochs}: "
-              f"{n_active}/{args.n_atoms} active atoms, "
-              f"avg_loss={avg_loss:.2f}, "
-              f"resampled={total_resampled}, "
-              f"time={elapsed:.0f}s", flush=True)
+        if is_main:
+            print(f"Epoch {epoch}/{args.n_epochs}: "
+                  f"{n_active}/{args.n_atoms} active atoms, "
+                  f"avg_loss={avg_loss:.2f}, "
+                  f"resampled={total_resampled}, "
+                  f"time={elapsed:.0f}s", flush=True)
 
-        # Checkpoint every epoch
-        dl.save_checkpoint(ckpt_path, epoch + 1, global_step)
-        print(f"  Checkpoint saved -> {ckpt_path}", flush=True)
+            # Checkpoint every epoch (rank 0 only)
+            dl.save_checkpoint(ckpt_path, epoch + 1, global_step)
+            print(f"  Checkpoint saved -> {ckpt_path}", flush=True)
 
-    # ── Final transform: compute sparse coefficients for all docs ──
-    print("\nComputing final coefficients for all docs...", flush=True)
-    coeff_dir = os.path.join(run_dir, "coefficients")
-    os.makedirs(coeff_dir, exist_ok=True)
+        if world_size > 1:
+            dist.barrier()
 
-    # Compute explained variance
-    total_sq_norm = 0.0
-    total_recon_error = 0.0
+    # ── Final transform: compute sparse coefficients (rank 0 only) ──
+    if is_main:
+        print("\nComputing final coefficients for all docs...", flush=True)
+        coeff_dir = os.path.join(run_dir, "coefficients")
+        os.makedirs(coeff_dir, exist_ok=True)
 
-    for si, shard_info in enumerate(shards):
-        data = torch.load(shard_info["path"], weights_only=True, map_location="cpu")
-        G = data["projected_gradients"]
-        indices = data["indices"]
+        total_sq_norm = 0.0
+        total_recon_error = 0.0
 
-        norms = G.norm(dim=1, keepdim=True).clamp(min=1e-8)
-        G = G / norms
+        for si, shard_info in enumerate(shards):
+            data = torch.load(shard_info["path"], weights_only=True, map_location="cpu")
+            G = data["projected_gradients"]
+            indices = data["indices"]
 
-        n = G.shape[0]
+            norm_mode = os.environ.get("NORM_MODE", "unit")
+            norms = G.norm(dim=1, keepdim=True).clamp(min=1e-8)
+            if norm_mode == "unit":
+                G = G / norms
+            elif norm_mode == "log":
+                log_norms = torch.log1p(norms)
+                G = G / norms * log_norms
 
-        # For large K, store sparse coefficients (indices + values)
-        all_coeff_indices = []
-        all_coeff_values = []
-        n_active_docs = 0
+            n = G.shape[0]
+            all_coeff_indices = []
+            all_coeff_values = []
+            n_active_docs = 0
 
-        for start in range(0, n, args.batch_size):
-            end = min(start + args.batch_size, n)
-            batch = G[start:end].to(args.device)
-            Z = dl.sparse_code(batch, n_iter=args.fista_iters_final)
+            for start in range(0, n, args.batch_size):
+                end = min(start + args.batch_size, n)
+                batch = G[start:end].to(args.device)
+                Z = dl.sparse_code(batch, n_iter=args.fista_iters_final)
 
-            recon = Z @ dl.D
-            total_sq_norm += batch.pow(2).sum().item()
-            total_recon_error += (batch - recon).pow(2).sum().item()
+                recon = Z @ dl.D
+                total_sq_norm += batch.pow(2).sum().item()
+                total_recon_error += (batch - recon).pow(2).sum().item()
 
-            # Store sparse
-            Z_cpu = Z.cpu()
-            for row_idx in range(Z_cpu.shape[0]):
-                nonzero = Z_cpu[row_idx].abs() > 1e-6
-                nz_indices = torch.where(nonzero)[0].to(torch.int32)
-                nz_values = Z_cpu[row_idx, nonzero]
-                all_coeff_indices.append(nz_indices)
-                all_coeff_values.append(nz_values)
-                if len(nz_indices) > 0:
-                    n_active_docs += 1
+                Z_cpu = Z.cpu()
+                for row_idx in range(Z_cpu.shape[0]):
+                    nonzero = Z_cpu[row_idx].abs() > 1e-6
+                    nz_indices = torch.where(nonzero)[0].to(torch.int32)
+                    nz_values = Z_cpu[row_idx, nonzero]
+                    all_coeff_indices.append(nz_indices)
+                    all_coeff_values.append(nz_values)
+                    if len(nz_indices) > 0:
+                        n_active_docs += 1
 
-        coeff_path = os.path.join(coeff_dir, f"shard_{si:04d}.pt")
-        torch.save({
-            "coeff_indices": all_coeff_indices,
-            "coeff_values": all_coeff_values,
-            "doc_indices": indices,
-            "n_atoms": args.n_atoms,
-        }, coeff_path)
+            coeff_path = os.path.join(coeff_dir, f"shard_{si:04d}.pt")
+            torch.save({
+                "coeff_indices": all_coeff_indices,
+                "coeff_values": all_coeff_values,
+                "doc_indices": indices,
+                "n_atoms": args.n_atoms,
+            }, coeff_path)
 
-        print(f"  Shard {si}/{len(shards)}: {n_active_docs}/{n} docs active -> {coeff_path}",
+            print(f"  Shard {si}/{len(shards)}: {n_active_docs}/{n} docs active "
+                  f"-> {coeff_path}", flush=True)
+
+        explained_var = 1.0 - total_recon_error / total_sq_norm
+        print(f"\nExplained variance: {explained_var:.4f} ({explained_var*100:.2f}%)",
               flush=True)
 
-    explained_var = 1.0 - total_recon_error / total_sq_norm
-    print(f"\nExplained variance: {explained_var:.4f} ({explained_var*100:.2f}%)", flush=True)
+        atoms_path = os.path.join(run_dir, "atoms.pt")
+        torch.save({
+            "dictionary": dl.D.cpu(),
+            "n_atoms": args.n_atoms,
+            "input_dim": input_dim,
+            "alpha": args.alpha,
+            "lr": args.lr,
+            "n_epochs": args.n_epochs,
+            "fista_iters": args.fista_iters,
+            "activation_history": dl.activation_history,
+            "explained_variance": explained_var,
+            "seed": SEED,
+        }, atoms_path)
+        print(f"Dictionary saved -> {atoms_path}", flush=True)
+        print("Dictionary learning complete!", flush=True)
 
-    # ── Save final atoms ──
-    atoms_path = os.path.join(run_dir, "atoms.pt")
-    torch.save({
-        "dictionary": dl.D.cpu(),
-        "n_atoms": args.n_atoms,
-        "input_dim": input_dim,
-        "alpha": args.alpha,
-        "lr": args.lr,
-        "n_epochs": args.n_epochs,
-        "fista_iters": args.fista_iters,
-        "activation_history": dl.activation_history,
-        "explained_variance": explained_var,
-        "seed": SEED,
-    }, atoms_path)
-    print(f"Dictionary saved -> {atoms_path}", flush=True)
-    print("Dictionary learning complete!", flush=True)
+    if world_size > 1:
+        import torch.distributed as dist
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":

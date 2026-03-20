@@ -164,11 +164,37 @@ def main():
                 gr.Markdown(value=table)
 
             with gr.Tab("Atom Detail"):
+                n_active_atoms = sum(1 for a in atoms if a["n_active"] > 100)
+                gr.Markdown(f"*{n_active_atoms} features with >100 active docs. "
+                            f"Use filters to navigate.*")
+                with gr.Row():
+                    rank_input = gr.Number(value=1, label="Rank (by coherence)",
+                                           precision=0, minimum=1, maximum=len(atoms))
+                    min_active = gr.Number(value=100, label="Min active docs",
+                                            precision=0)
+                    keyword_search = gr.Textbox(label="Keyword search", placeholder="e.g. math, python, story")
                 rank_slider = gr.Slider(1, len(atoms), value=1, step=1,
-                                        label="Atom Rank (by coherence)")
+                                        label="Scroll through ranks")
+                with gr.Row():
+                    prev_btn = gr.Button("← Prev matching")
+                    next_btn = gr.Button("Next matching →")
                 detail_md = gr.Markdown()
 
-        def show_detail(rank):
+        # Build filtered index for navigation
+        def get_filtered_atoms(min_docs, keyword):
+            filtered = []
+            for i, a in enumerate(atoms):
+                if a["n_active"] < min_docs:
+                    continue
+                if keyword and keyword.strip():
+                    kw_lower = keyword.strip().lower()
+                    atom_kws = " ".join(a.get("keywords", [])).lower()
+                    if kw_lower not in atom_kws:
+                        continue
+                filtered.append(i + 1)  # 1-indexed rank
+            return filtered
+
+        def show_detail(rank, min_docs=0, keyword=""):
             rank = max(1, min(int(rank), len(atoms)))
             a = atoms[rank - 1]
             keywords = ", ".join(a["keywords"]) if a["keywords"] else "(none)"
@@ -179,15 +205,16 @@ def main():
                 key = str(idx)
                 if key in training_docs:
                     d = training_docs[key]
-                    user = d["user"].replace("\n", " ")[:120]
-                    asst = d["assistant"].replace("\n", " ")[:200]
+                    user_full = d["user"]
+                    asst_full = d["assistant"]
                     doc_lines.append(
-                        f"**Doc {idx}**\n"
-                        f"- User: {user}\n"
-                        f"- Assistant: {asst}\n"
+                        f"---\n"
+                        f"**Doc {idx}**\n\n"
+                        f"**User:** {user_full[:500]}\n\n"
+                        f"**Assistant:** {asst_full[:800]}\n"
                     )
                 else:
-                    doc_lines.append(f"**Doc {idx}** (not in cache)\n")
+                    doc_lines.append(f"---\n**Doc {idx}** (not in cache)\n")
 
             docs_section = "\n".join(doc_lines) if doc_lines else "(no docs)"
 
@@ -208,7 +235,36 @@ def main():
 {docs_section}
 """
 
-        rank_slider.change(show_detail, rank_slider, detail_md)
+        def nav_prev(rank, min_docs, keyword):
+            filtered = get_filtered_atoms(min_docs, keyword)
+            if not filtered:
+                return rank, "No atoms match filter"
+            rank = int(rank)
+            prev_ranks = [r for r in filtered if r < rank]
+            new_rank = prev_ranks[-1] if prev_ranks else filtered[-1]
+            return new_rank, show_detail(new_rank, min_docs, keyword)
+
+        def nav_next(rank, min_docs, keyword):
+            filtered = get_filtered_atoms(min_docs, keyword)
+            if not filtered:
+                return rank, "No atoms match filter"
+            rank = int(rank)
+            next_ranks = [r for r in filtered if r > rank]
+            new_rank = next_ranks[0] if next_ranks else filtered[0]
+            return new_rank, show_detail(new_rank, min_docs, keyword)
+
+        def on_rank_change(rank, min_docs, keyword):
+            return show_detail(rank, min_docs, keyword)
+
+        def slider_change(rank, min_docs, keyword):
+            return rank, show_detail(rank, min_docs, keyword)
+
+        rank_input.change(on_rank_change, [rank_input, min_active, keyword_search], detail_md)
+        rank_slider.change(slider_change, [rank_slider, min_active, keyword_search], [rank_input, detail_md])
+        min_active.change(on_rank_change, [rank_input, min_active, keyword_search], detail_md)
+        keyword_search.submit(on_rank_change, [rank_input, min_active, keyword_search], detail_md)
+        prev_btn.click(nav_prev, [rank_input, min_active, keyword_search], [rank_input, detail_md])
+        next_btn.click(nav_next, [rank_input, min_active, keyword_search], [rank_input, detail_md])
 
     app.launch(server_name="0.0.0.0", server_port=args.port, share=args.share)
 

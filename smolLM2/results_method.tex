@@ -1,0 +1,112 @@
+% ══════════════════════════════════════════════════════════════════════
+% Gradient Atoms / Gradient SAE — Method and Results
+% ══════════════════════════════════════════════════════════════════════
+
+\subsection{EKFAC Eigenprojection}
+
+For each training document $i$, we compute the cross-entropy loss gradient with respect to each tracked MLP weight matrix $W_m \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$ (gate\_proj, up\_proj, down\_proj across $L{=}24$ layers, giving $M{=}72$ modules). The EKFAC decomposition~\citep{george2018fast} provides eigendecompositions of the Kronecker-factored Fisher:
+\begin{equation}
+    F_m \approx (Q_m^S \Lambda_m^S {Q_m^S}^\top) \otimes (Q_m^A \Lambda_m^A {Q_m^A}^\top)
+\end{equation}
+where $Q_m^A \in \mathbb{R}^{d_{\text{in}} \times d_{\text{in}}}$ and $Q_m^S \in \mathbb{R}^{d_{\text{out}} \times d_{\text{out}}}$ are activation and gradient eigenvectors, with corresponding eigenvalues $\Lambda_m^A$ and $\Lambda_m^S$.
+
+For each module $m$, the Kronecker eigenvalues are $\lambda_{m,jk} = \Lambda^S_{m,j} \cdot \Lambda^A_{m,k}$, giving $d_{\text{out}} \times d_{\text{in}}$ eigenvalues per module. We retain the top-$k$ by magnitude ($k{=}50$ in our experiments, yielding $72 \times 50 = 3{,}600$ projected dimensions). The projection of document $i$'s gradient for module $m$ is:
+\begin{equation}
+    \tilde{g}_{i,m} = {Q_m^S}^\top \nabla_{W_m} \mathcal{L}_i \, Q_m^A \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}
+\end{equation}
+We flatten and select the top-$k$ components by Kronecker eigenvalue magnitude, concatenating across modules to form $\tilde{\mathbf{g}}_i \in \mathbb{R}^{Mk}$.
+
+\paragraph{Preconditioning.} The standard EKFAC preconditioning scales each component by $1/\sqrt{|\lambda| + \epsilon}$, making the projected space approximately isotropic (equal curvature in all directions). This is optimal for influence functions~\citep{grosse2023studying} but, as we show, suboptimal for sparse decomposition: it amplifies noise in low-eigenvalue directions. We compare preconditioned and raw (unscaled) projections.
+
+\paragraph{Optimised extraction.} Rather than computing the full eigenbasis projection $\tilde{g}_{i,m} \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$ and selecting components, we precompute the unique eigenvector subsets needed for the top-$k$ Kronecker indices and project only onto those (${\sim}50$ columns each of $Q_m^A$ and $Q_m^S$), reducing per-module cost from $O(d_{\text{out}}^2 d_{\text{in}} + d_{\text{out}} d_{\text{in}}^2)$ to $O(k \cdot d_{\text{out}} \cdot d_{\text{in}})$.
+
+\subsection{Normalisation}
+
+We compare three normalisation strategies for the projected gradient vectors before sparse decomposition:
+
+\paragraph{Unit normalisation.} $\hat{\mathbf{g}}_i = \tilde{\mathbf{g}}_i / \|\tilde{\mathbf{g}}_i\|_2$. Discards gradient magnitude; decomposes directions only.
+
+\paragraph{Log normalisation.} $\hat{\mathbf{g}}_i = \frac{\tilde{\mathbf{g}}_i}{\|\tilde{\mathbf{g}}_i\|_2} \cdot \log(1 + \|\tilde{\mathbf{g}}_i\|_2)$. Preserves relative magnitudes on a compressed scale. Documents with large gradients (high training signal) receive proportionally more weight in the decomposition without outlier domination.
+
+\paragraph{No normalisation.} $\hat{\mathbf{g}}_i = \tilde{\mathbf{g}}_i$. Preserves raw magnitudes. Unstable for dictionary learning (causes numerical issues in resampling) but viable for SAEs.
+
+\subsection{Sparse Decomposition Methods}
+
+\subsubsection{FISTA Dictionary Learning}
+
+We seek a dictionary $\mathbf{D} \in \mathbb{R}^{K \times d}$ and sparse codes $\mathbf{Z} \in \mathbb{R}^{N \times K}$ minimising:
+\begin{equation}
+    \min_{\mathbf{D}, \mathbf{Z}} \frac{1}{N} \sum_{i=1}^{N} \left\| \hat{\mathbf{g}}_i - \sum_{j=1}^{K} z_{ij} \mathbf{d}_j \right\|_2^2 + \alpha \|z_i\|_1 \quad \text{s.t.} \quad \|\mathbf{d}_j\|_2 = 1 \;\forall j
+\end{equation}
+Sparse coding uses FISTA (Fast Iterative Shrinkage-Thresholding Algorithm) with soft thresholding. For scalability to $K{=}16{,}000$ atoms, we avoid forming the $K \times K$ matrix $\mathbf{D}\mathbf{D}^\top$ by computing gradients via the residual: $\nabla_{\mathbf{z}} = (\mathbf{Z}\mathbf{D} - \mathbf{X})\mathbf{D}^\top$, with cost $O(BKd)$ per iteration. The Lipschitz constant is estimated via power iteration on $\mathbf{D}\mathbf{D}^\top$.
+
+\paragraph{Dead atom resampling.} Atoms activated fewer than a threshold number of times are reinitialised from training points with high reconstruction error, sampled proportional to $\|\hat{\mathbf{g}}_i - \hat{\mathbf{g}}_i^{\text{recon}}\|_2^2$.
+
+\subsubsection{TopK Sparse Autoencoder}
+
+Following \citet{gao2024scaling}, we train a TopK SAE with learned encoder:
+\begin{align}
+    \mathbf{z}_i &= \text{TopK}\!\left(\text{ReLU}\!\left(\mathbf{W}_{\text{enc}}(\hat{\mathbf{g}}_i - \mathbf{b}_{\text{dec}}) + \mathbf{b}_{\text{enc}}\right), K\right) \\
+    \hat{\mathbf{g}}_i^{\text{recon}} &= \mathbf{W}_{\text{dec}} \mathbf{z}_i + \mathbf{b}_{\text{dec}}
+\end{align}
+where $\text{TopK}$ retains only the $K$ largest activations per input, setting the rest to zero. This fixes the sparsity level without requiring tuning of an L1 penalty $\alpha$.
+
+\paragraph{AuxK dead feature recovery.} For features with activation count below a threshold (``dead'' features), we compute an auxiliary reconstruction of the residual $\mathbf{r}_i = \hat{\mathbf{g}}_i - \hat{\mathbf{g}}_i^{\text{recon}}$ using only the dead features:
+\begin{equation}
+    \mathcal{L}_{\text{aux}} = \frac{1}{N} \sum_{i=1}^{N} \left\| \mathbf{r}_i - \mathbf{W}_{\text{dec}} \, \text{TopK}_{\text{dead}}(\mathbf{W}_{\text{enc}} \mathbf{r}_i, K_{\text{aux}}) \right\|_2^2
+\end{equation}
+The total loss is $\mathcal{L} = \mathcal{L}_{\text{recon}} + \frac{1}{32} \mathcal{L}_{\text{aux}}$. Decoder columns are projected to unit norm after each optimisation step.
+
+\subsection{Explained Variance}
+
+We report reconstruction quality as explained variance:
+\begin{equation}
+    \text{EV} = 1 - \frac{\sum_{i=1}^{N} \|\hat{\mathbf{g}}_i - \hat{\mathbf{g}}_i^{\text{recon}}\|_2^2}{\sum_{i=1}^{N} \|\hat{\mathbf{g}}_i\|_2^2}
+\end{equation}
+where $\hat{\mathbf{g}}_i^{\text{recon}} = \mathbf{D}^\top \mathbf{z}_i$ (FISTA) or $\mathbf{W}_{\text{dec}} \mathbf{z}_i + \mathbf{b}_{\text{dec}}$ (SAE).
+
+\subsection{Coherence}
+
+For each atom/feature $j$, we measure coherence over \emph{all} activating documents $\mathcal{S}_j = \{i : z_{ij} \neq 0\}$ using the efficient mean-of-normed estimator:
+\begin{equation}
+    \text{coherence}(j) = \frac{\left\| \frac{1}{|\mathcal{S}_j|} \sum_{i \in \mathcal{S}_j} \frac{\tilde{\mathbf{g}}_i}{\|\tilde{\mathbf{g}}_i\|} \right\|^2 - \frac{1}{|\mathcal{S}_j|}}{\frac{|\mathcal{S}_j| - 1}{|\mathcal{S}_j|}}
+\end{equation}
+which equals the mean pairwise cosine similarity and is computable in $O(|\mathcal{S}_j| \cdot d)$ rather than $O(|\mathcal{S}_j|^2 \cdot d)$.
+
+% ══════════════════════════════════════════════════════════════════════
+% Results Table
+% ══════════════════════════════════════════════════════════════════════
+
+\subsection{Results}
+
+\begin{table}[t]
+\centering
+\caption{Explained variance of sparse gradient decompositions on SmolLM2-1.7B-Instruct (1.04M SmolTalk documents, 72 MLP modules, 8$\times$ H200 GPUs).}
+\label{tab:gradient-atoms-sweep}
+\small
+\begin{tabular}{llccccc}
+\toprule
+\textbf{Method} & \textbf{Features} & \textbf{Dims} & \textbf{Precond.} & \textbf{Norm} & \textbf{EV (\%)} & \textbf{Time} \\
+\midrule
+\multicolumn{7}{l}{\textit{FISTA Dictionary Learning}} \\
+\midrule
+FISTA ($\alpha{=}0.1$)   & 500      & 3{,}600  & \cmark & unit & 28.2 & 4m \\
+FISTA ($\alpha{=}0.1$)   & 16{,}000 & 3{,}600  & \cmark & unit & 39.3 & 25m \\
+FISTA ($\alpha{=}0.05$)  & 16{,}000 & 3{,}600  & \cmark & unit & 2.0  & 25m \\
+FISTA ($\alpha{=}0.1$)   & 2{,}000  & 3{,}600  & \cmark & log  & 53.8 & 22m \\
+FISTA ($\alpha{=}0.07$)  & 16{,}000 & 3{,}600  & \cmark & unit & 38.4 & 33m \\
+\midrule
+\multicolumn{7}{l}{\textit{TopK Sparse Autoencoder ($K{=}64$, AuxK $K_{\text{aux}}{=}256$)}} \\
+\midrule
+TopK SAE   & 16{,}384 & 3{,}600  & \cmark & log  & 62.9 & 3m \\
+TopK SAE   & 16{,}384 & 14{,}400 & \cmark & log  & 46.4 & 11m \\
+TopK SAE   & 65{,}536 & 14{,}400 & \cmark & log  & 51.8 & 43m \\
+\rowcolor{green!10}
+TopK SAE   & 16{,}384 & 3{,}600  & \xmark & log  & \textbf{72.3} & \textbf{50s} \\
+\bottomrule
+\end{tabular}
+\vspace{0.5em}
+
+\footnotesize
+\textbf{Key findings:} (1)~TopK SAE outperforms FISTA by $+$24pp at matched feature count (62.9 vs 39.3\%). (2)~Log-normalisation (preserving gradient magnitudes) improves over unit normalisation by $+$15pp. (3)~Removing EKFAC preconditioning improves EV by $+$9pp by concentrating signal in high-eigenvalue directions (357$\times$ dynamic range). (4)~Increasing EKFAC dimensions from 3{,}600 to 14{,}400 \emph{decreases} EV at matched overcompleteness---additional low-eigenvalue components add noise amplified by preconditioning. (5)~Sparsity penalty $\alpha$ is critical for FISTA: $\alpha{=}0.05$ collapses to 2\% EV (codes activate all atoms with negligible coefficients).
+\end{table}
