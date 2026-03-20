@@ -83,6 +83,7 @@ dependencies = [
   "logix-ai>=0.1.1",
   "umap-learn>=0.5.11",
   "google-generativeai>=0.8.6",
+  "gradio>=6.9.0",
 ]
 
 [build-system]
