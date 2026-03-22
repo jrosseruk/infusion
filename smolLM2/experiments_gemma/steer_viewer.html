@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Steering Viewer</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,sans-serif;background:#111;color:#eee;display:flex;height:100vh}
+#sidebar{width:320px;background:#1a1a1a;border-right:1px solid #333;display:flex;flex-direction:column;flex-shrink:0}
+#sidebar h2{padding:12px 16px;font-size:14px;color:#8bf;border-bottom:1px solid #333}
+#featureList{flex:1;overflow-y:auto;padding:4px}
+.feat-item{padding:8px 12px;border-radius:6px;cursor:pointer;margin:2px 0;border:1px solid transparent}
+.feat-item:hover{background:#222;border-color:#444}
+.feat-item.active{background:#1a2a3a;border-color:#8bf}
+.feat-item .fi-head{display:flex;justify-content:space-between;align-items:center}
+.feat-item .fi-id{font-size:11px;color:#666}
+.feat-item .fi-label{font-size:12px;color:#eee;font-weight:600;margin:2px 0}
+.feat-item .fi-meta{font-size:10px;color:#888}
+.feat-item .fi-kw{font-size:10px;color:#bd9;margin-top:2px}
+.feat-item .fi-coh{font-size:10px;font-weight:600}
+.fi-coh.high{color:#2ecc71}
+.fi-coh.mid{color:#f1c40f}
+.fi-coh.low{color:#e74c3c}
+#main{flex:1;overflow-y:auto;padding:20px}
+h1{margin-bottom:12px;color:#8bf;font-size:20px}
+.controls{display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.controls label{font-size:13px;color:#999}
+.controls input{background:#333;color:#eee;border:1px solid #555;border-radius:4px;padding:6px 10px;font-size:13px}
+.controls input[type=number]{width:70px}
+.controls input[type=text]{flex:1;min-width:200px}
+button{background:#3498db;color:#fff;border:none;border-radius:4px;padding:8px 16px;cursor:pointer;font-size:13px}
+button:hover{background:#2980b9}
+button:disabled{background:#555;cursor:wait}
+.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px}
+.card{background:#1a1a1a;border-radius:8px;padding:14px;border:1px solid #333}
+.card h3{font-size:13px;margin-bottom:8px}
+.card h3.baseline{color:#999}
+.card h3.sae{color:#e74c3c}
+.card h3.random{color:#3498db}
+.card .text{font-size:12px;line-height:1.6;color:#ccc;white-space:pre-wrap;max-height:400px;overflow-y:auto}
+.feature-info{background:#1a1a2a;border-radius:8px;padding:14px;margin-bottom:16px;border:1px solid #334}
+.feature-info h3{color:#bd9;margin-bottom:6px;font-size:14px}
+.feature-info .meta{font-size:11px;color:#999;margin-bottom:2px}
+.feature-info .keywords{font-size:11px;color:#8bf}
+.docs-section h3{color:#bd9;margin:12px 0 8px;font-size:13px}
+.doc{background:#222;border-radius:6px;padding:10px;margin-bottom:6px;font-size:11px}
+.doc .role{font-weight:600;margin-bottom:2px}
+.doc .role.u{color:#f90}
+.doc .role.a{color:#6c6}
+.doc .txt{color:#ccc;line-height:1.5;max-height:80px;overflow:hidden}
+#status{font-size:12px;color:#666;margin-left:12px}
+.diff{background:rgba(255,200,50,0.15);border-radius:2px;padding:0 2px}
+#searchBox{width:100%;padding:8px 12px;background:#222;border:1px solid #444;border-radius:4px;color:#eee;font-size:12px;margin-bottom:4px}
+</style></head><body>
+<div id="sidebar">
+  <h2>Features (by coherence)</h2>
+  <div style="padding:8px"><input type="text" id="searchBox" placeholder="Search labels/keywords..."></div>
+  <div id="featureList">Loading...</div>
+</div>
+<div id="main">
+  <h1>Gradient Atoms Steering Viewer</h1>
+  <div class="controls">
+    <label>Feature:</label><input type="number" id="feat" value="0" min="0">
+    <label>Alpha:</label><input type="number" id="alpha" value="5" step="0.5" min="0">
+    <label>Prompt:</label><input type="text" id="prompt" value="Tell me about a character who discovers something unexpected.">
+    <button id="go" onclick="run()">Generate</button>
+    <span id="status"></span>
+  </div>
+  <div id="featureInfo" class="feature-info" style="display:none"></div>
+  <div class="grid">
+    <div class="card"><h3 class="baseline">Baseline (no steering)</h3><div class="text" id="baseText">Select a feature and click Generate</div></div>
+    <div class="card"><h3 class="sae">SAE Feature Steering</h3><div class="text" id="saeText"></div></div>
+    <div class="card"><h3 class="random">Random Direction (control)</h3><div class="text" id="randText"></div></div>
+  </div>
+  <div id="trainDocs" class="docs-section"></div>
+</div>
+<script>
+var features = [];
+var activeFeat = -1;
+
+// Load feature list
+fetch('/api/features').then(r=>r.json()).then(function(data){
+  features = data;
+  renderList(features);
+});
+
+function renderList(list){
+  var el = document.getElementById('featureList');
+  el.innerHTML = '';
+  list.forEach(function(f){
+    var div = document.createElement('div');
+    div.className = 'feat-item' + (f.idx === activeFeat ? ' active' : '');
+    var cohClass = f.coh > 0.5 ? 'high' : f.coh > 0.2 ? 'mid' : 'low';
+    div.innerHTML = '<div class="fi-head"><span class="fi-id">#' + f.idx + '</span>' +
+      '<span class="fi-coh ' + cohClass + '">' + f.coh.toFixed(3) + '</span></div>' +
+      (f.label ? '<div class="fi-label">' + f.label + '</div>' : '') +
+      '<div class="fi-meta">' + f.active.toLocaleString() + ' docs' +
+      (f.dim ? ' · ' + f.dim : '') + '</div>' +
+      '<div class="fi-kw">' + (f.kw || []).slice(0, 5).join(', ') + '</div>';
+    div.onclick = function(){
+      activeFeat = f.idx;
+      document.getElementById('feat').value = f.idx;
+      document.querySelectorAll('.feat-item').forEach(function(el){ el.classList.remove('active'); });
+      div.classList.add('active');
+    };
+    el.appendChild(div);
+  });
+}
+
+document.getElementById('searchBox').addEventListener('input', function(){
+  var q = this.value.toLowerCase();
+  if (!q) { renderList(features); return; }
+  var filtered = features.filter(function(f){
+    return (f.label||'').toLowerCase().indexOf(q) >= 0 ||
+           (f.kw||[]).join(' ').toLowerCase().indexOf(q) >= 0 ||
+           (f.dim||'').toLowerCase().indexOf(q) >= 0;
+  });
+  renderList(filtered);
+});
+
+async function run(){
+  var btn=document.getElementById('go');
+  btn.disabled=true;
+  document.getElementById('status').textContent='Generating 3 responses...';
+  var feat=document.getElementById('feat').value;
+  var alpha=document.getElementById('alpha').value;
+  var prompt=encodeURIComponent(document.getElementById('prompt').value);
+  try{
+    var r=await fetch('/api/steer?feat='+feat+'&alpha='+alpha+'&prompt='+prompt);
+    var d=await r.json();
+    document.getElementById('baseText').textContent=d.baseline;
+    document.getElementById('saeText').textContent=d.sae;
+    document.getElementById('randText').textContent=d.random;
+    var info=d.info;
+    var fi=document.getElementById('featureInfo');
+    fi.style.display='block';
+    fi.innerHTML='<h3>Feature '+d.feat+(info.label?' — '+info.label:'')+'</h3>'+
+      '<div class="meta">Coherence: '+(info.coherence||0).toFixed(4)+
+      ' | Active: '+(info.n_active||0).toLocaleString()+
+      (info.dimension?' | Dimension: '+info.dimension:'')+
+      '</div><div class="keywords">Keywords: '+(info.keywords||[]).join(', ')+'</div>';
+    var td=document.getElementById('trainDocs');
+    if(d.docs&&d.docs.length>0){
+      var html='<h3>Training docs this feature activates on:</h3>';
+      d.docs.forEach(function(doc){
+        html+='<div class="doc"><div class="role u">User</div><div class="txt">'+esc(doc.user)+'</div>'+
+          '<div class="role a">Assistant</div><div class="txt">'+esc(doc.assistant)+'</div></div>';
+      });
+      td.innerHTML=html;
+    }else{td.innerHTML='';}
+    document.getElementById('status').textContent='Done';
+    highlightDiffs();
+    // Update sidebar selection
+    activeFeat = parseInt(feat);
+    document.querySelectorAll('.feat-item').forEach(function(el){ el.classList.remove('active'); });
+  }catch(e){
+    document.getElementById('status').textContent='Error: '+e.message;
+  }
+  btn.disabled=false;
+}
+function esc(s){if(!s)return'';var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function highlightDiffs(){
+  var base=document.getElementById('baseText').textContent;
+  var baseSet=new Set(base.split(/\s+/));
+  function mark(text){
+    return text.split(/\s+/).map(function(w){
+      if(!baseSet.has(w))return '<span class="diff">'+esc(w)+'</span>';
+      return esc(w);
+    }).join(' ');
+  }
+  document.getElementById('saeText').innerHTML=mark(document.getElementById('saeText').textContent);
+  document.getElementById('randText').innerHTML=mark(document.getElementById('randText').textContent);
+}
+</script>
+</body></html>
