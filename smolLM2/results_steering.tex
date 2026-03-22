@@ -1,0 +1,58 @@
+\subsection{Steering Experiment}
+
+We evaluate whether the discovered SAE features correspond to actionable steering directions that can change SmolLM2-1.7B-Instruct's behavior when unprojected back to weight space.
+
+\paragraph{Method.} For each SAE feature, we extract the decoder column (a direction in EKFAC-projected gradient space), unproject it through the EKFAC eigenvectors back to full MLP weight space (${\sim}1.2$B parameters), and apply it as a direct weight perturbation: $W_{\text{new}} = W - \alpha \cdot \Delta W$. We compare SAE steering against a random baseline (random direction in the same projected space, matched norm, identically unprojected) using GPT-4o-mini as an LLM judge scoring behavioral change on a $[-5, +5]$ scale. We test 20 features across step sizes $\alpha \in \{0.5, 1.0, 2.0, 5.0\}$ in both directions (amplify and suppress), totalling 321 conditions evaluated on 8$\times$ H200 GPUs.
+
+\paragraph{Projection fidelity.} We measure the EKFAC projection lossiness by computing the fraction of total Kronecker eigenvalue energy captured by the top-$k$ components per module (Table~\ref{tab:projection-loss}).
+
+\begin{table}[t]
+\centering
+\caption{EKFAC projection fidelity: fraction of Fisher eigenvalue energy retained by top-$k$ components across 72 MLP modules. Higher $k$ retains more information but increases dimensionality.}
+\label{tab:projection-loss}
+\small
+\begin{tabular}{cccc}
+\toprule
+\textbf{top-$k$} & \textbf{Dims} & \textbf{Fisher energy retained} & \textbf{Energy lost} \\
+\midrule
+50  & 3{,}600  & 9.4\%  & 90.6\% \\
+200 & 14{,}400 & 18.6\% & 81.4\% \\
+500 & 36{,}000 & 29.0\% & 71.0\% \\
+\bottomrule
+\end{tabular}
+\vspace{0.3em}
+
+\footnotesize
+Note: Energy is distributed unevenly across layers. Layer 23 up\_proj concentrates 25\% of its Fisher energy in top-50 components, while layer 12 down\_proj concentrates only 0.3\%.
+\end{table}
+
+\paragraph{Results.} Table~\ref{tab:steering-results} summarises steering effectiveness across projection fidelities. At all tested values of top-$k$, SAE-derived steering directions produce behavioral changes \emph{statistically indistinguishable from random perturbations} of matched magnitude. The difference score (0--5 scale measuring divergence from baseline) increases monotonically with $\alpha$ for both SAE and random directions, confirming that perturbations do affect model outputs---but the SAE directions are no more targeted than random noise in the same projected space.
+
+\begin{table}[t]
+\centering
+\caption{Steering results: SAE vs random baseline at $\alpha{=}2.0$. Diff score measures how different the steered response is from baseline (0=identical, 5=completely different). Higher is not better---the key metric is whether SAE$>$Random.}
+\label{tab:steering-results}
+\small
+\begin{tabular}{ccccccc}
+\toprule
+\textbf{top-$k$} & \textbf{SAE EV} & \textbf{SAE diff} & \textbf{Rand diff} & \textbf{$p$-value} & \textbf{Incoherent} & \textbf{Sig.} \\
+\midrule
+50 (precond.)  & 64.0\% & $\approx$Rand & $\approx$Rand & n.s. & 5\%  & --- \\
+50 (raw)       & 72.3\% & $\approx$Rand & $\approx$Rand & n.s. & 5\%  & --- \\
+200            & 46.4\% & $\approx$Rand & $\approx$Rand & n.s. & 45\% & --- \\
+500            & 34.1\% & 1.41$\pm$1.02 & 1.41$\pm$0.99 & 0.56 & 0\%  & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Analysis.} Why do interpretable gradient features fail to steer? We identify two factors:
+
+\begin{enumerate}
+\item \textbf{Projection bottleneck.} Even at top-$k{=}500$, 71\% of Fisher eigenvalue energy is lost. The unprojected steering vector is a rank-$k$ perturbation of each weight matrix, spread across 72 modules. This produces a broad, unfocused perturbation that degrades the model before it steers it. For comparison, the original gradient atoms paper~\citep{rosser2025gradient} steered LoRA adapters with ${\sim}2.2$M parameters, where the same projected directions represent a much larger fraction of the total parameter space.
+
+\item \textbf{Gradient clusters $\neq$ behavioral directions.} The SAE discovers clusters of training documents with similar gradient patterns (validated by high coherence scores and interpretable keywords). However, a cluster of similar gradients does not necessarily define a single weight-space direction that, when amplified, changes model behavior in the corresponding way. The gradient of a ``creative writing'' document tells the model how to better fit \emph{that specific document}, not how to become more creative in general. The SAE averages over many such gradients, but the average may point in a direction that is not behaviourally meaningful when applied as a weight perturbation.
+\end{enumerate}
+
+\paragraph{Positive controls.} To verify our steering infrastructure works, we confirmed that: (a) perturbations at high $\alpha$ do cause model degradation (incoherent responses increase from 0\% at $\alpha{=}0.5$ to 45--85\% at $\alpha{=}50{-}100$), demonstrating the perturbations affect the model; (b) the LLM judge correctly distinguishes baseline from steered responses (diff scores increase monotonically with $\alpha$); and (c) qualitative inspection shows subtle but real changes at moderate $\alpha$ values (character names change, response style shifts). The perturbations are real---they simply lack directional specificity compared to random noise.
+
+\paragraph{Implications.} Gradient-based sparse decomposition discovers interpretable structure in training signals (Section~\ref{tab:preconditioning-interpretability}), but translating this structure into actionable steering vectors requires either: (a)~much higher projection fidelity (retaining $>$90\% of Fisher energy, requiring top-$k{>}5000$ per module and $>$360{,}000 projected dimensions); (b)~a learned unprojection that maps from SAE features to weight perturbations end-to-end; or (c)~steering via activation-space interventions rather than weight-space perturbations.

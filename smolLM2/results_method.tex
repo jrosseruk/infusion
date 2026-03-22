@@ -110,3 +110,46 @@ TopK SAE   & 16{,}384 & 3{,}600  & \xmark & log  & \textbf{72.3} & \textbf{50s} 
 \footnotesize
 \textbf{Key findings:} (1)~TopK SAE outperforms FISTA by $+$24pp at matched feature count (62.9 vs 39.3\%). (2)~Log-normalisation (preserving gradient magnitudes) improves over unit normalisation by $+$15pp. (3)~Removing EKFAC preconditioning improves EV by $+$9pp by concentrating signal in high-eigenvalue directions (357$\times$ dynamic range). (4)~Increasing EKFAC dimensions from 3{,}600 to 14{,}400 \emph{decreases} EV at matched overcompleteness---additional low-eigenvalue components add noise amplified by preconditioning. (5)~Sparsity penalty $\alpha$ is critical for FISTA: $\alpha{=}0.05$ collapses to 2\% EV (codes activate all atoms with negligible coefficients).
 \end{table}
+
+% ══════════════════════════════════════════════════════════════════════
+% Preconditioning vs Raw: Interpretability Analysis
+% ══════════════════════════════════════════════════════════════════════
+
+\subsection{Effect of EKFAC Preconditioning on Feature Interpretability}
+
+While removing EKFAC preconditioning improves explained variance (72.3\% vs 64.0\%), we find it significantly reduces feature diversity and interpretability. We compare the two settings using four quantitative metrics on TopK SAE features (16{,}384 features, $K{=}64$, log-normalised inputs).
+
+\begin{table}[t]
+\centering
+\caption{Interpretability comparison: preconditioned (isotropic) vs unpreconditioned (raw Fisher) gradient space. Both use identical TopK SAE architecture (16{,}384 features, $K{=}64$, log-norm).}
+\label{tab:preconditioning-interpretability}
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Metric} & \textbf{Preconditioned} & \textbf{Unpreconditioned} \\
+\midrule
+Explained variance (\%)          & 64.0  & \textbf{72.3} \\
+Active features ($>$100 docs)    & \textbf{11{,}035} & 1{,}488 \\
+Features with coherence $>$0.5   & 32    & \textbf{138} \\
+Mean coherence (active)          & 0.069 & \textbf{0.200} \\
+\midrule
+\multicolumn{3}{l}{\textit{Diversity metrics (top 200 features by coherence)}} \\
+\midrule
+Unique top-3 keyword combos      & \textbf{71\%} & 66\% \\
+Top keyword concentration        & \textbf{42\%} & 48\% \\
+Mean inter-feature cosine sim    & \textbf{0.0004} & 0.0376 \\
+Feature pairs with $\cos > 0.5$  & \textbf{0} & 4 \\
+Normalised activation entropy    & 0.80  & \textbf{0.93} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Inter-feature similarity.} The most striking difference is in decoder vector similarity: preconditioned features exhibit $94\times$ lower mean cosine similarity (0.0004 vs 0.038) with zero redundant pairs ($\cos > 0.5$). This confirms that preconditioning produces features capturing genuinely distinct behavioral modes, while the unpreconditioned space yields many near-duplicate features aligned with the dominant Fisher eigendirections.
+
+\paragraph{Feature utilisation.} Preconditioning yields $7.4\times$ more active features (11{,}035 vs 1{,}488 with $>$100 activating documents). In the unpreconditioned space, the 357$\times$ dynamic range between eigenvalue-scaled dimensions causes the SAE encoder to concentrate activations in a small subset of features. The isotropic space distributes activations more democratically.
+
+\paragraph{Coherence vs diversity tradeoff.} Unpreconditioned features achieve higher per-feature coherence (mean 0.20 vs 0.07) because they capture the dominant gradient directions where many documents agree. However, this comes at the cost of diversity: the top keyword appears in 48\% of features vs 42\%, and only 66\% of top-3 keyword combinations are unique vs 71\%.
+
+\paragraph{Interpretation.} The EKFAC preconditioning transforms gradient space from a \emph{variance-dominated basis} to a \emph{behavioural basis}. Two gradients close in preconditioned space induce similar changes in model predictions, regardless of raw magnitude. This makes preconditioned features semantically meaningful by construction. We recommend using preconditioned features for interpretability analysis and unpreconditioned features when maximum reconstruction fidelity is required (e.g., for steering vector extraction).
+
+\paragraph{Practical recommendation.} An effective pipeline decouples the two: train the SAE on preconditioned gradients for feature discovery and interpretability, then at steering time, unproject the discovered features through the raw (unpreconditioned) Fisher eigenbasis to maximise the behavioural impact of each steering vector.

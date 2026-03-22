@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Gradient Atoms 2D Map</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{display:flex;flex-direction:column;height:100vh;font-family:-apple-system,sans-serif;background:#111;color:#eee}
+#toolbar{background:#1a1a1a;padding:8px 16px;border-bottom:1px solid #333;display:flex;align-items:center;gap:12px;flex-shrink:0}
+#toolbar label{font-size:13px;color:#999}
+#toolbar select{background:#333;color:#eee;border:1px solid #555;border-radius:4px;padding:4px 8px;font-size:13px}
+#main{display:flex;flex:1;overflow:hidden}
+#map{flex:1;position:relative;cursor:crosshair}
+canvas{display:block}
+#sidebar{width:420px;background:#1a1a1a;overflow-y:auto;border-left:1px solid #333;padding:12px}
+#info h2{font-size:16px;margin-bottom:6px;color:#8bf}
+.meta{font-size:12px;color:#999;margin-bottom:4px}
+.keywords{font-size:12px;color:#bd9;margin-bottom:8px}
+.doc{background:#222;border-radius:6px;padding:10px;margin-bottom:8px;cursor:pointer;border:1px solid #333}
+.doc:hover{border-color:#666}
+.doc.sel{border-color:#8bf;background:#1a2a3a}
+.role{font-size:11px;font-weight:600;margin-bottom:2px}
+.role.u{color:#f90}
+.role.a{color:#6c6}
+.txt{font-size:12px;line-height:1.5;color:#ccc;white-space:pre-wrap;max-height:120px;overflow:hidden}
+.txt.open{max-height:none}
+.expand{font-size:11px;color:#8bf;cursor:pointer;margin:4px 0 8px 0}
+#tooltip{position:absolute;background:rgba(0,0,0,.85);color:#fff;padding:6px 10px;border-radius:4px;font-size:12px;pointer-events:none;display:none;z-index:10}
+.hw{border-radius:2px;padding:0 1px}
+</style></head><body>
+<div id="toolbar">
+  <label>Run:</label>
+  <select id="runSelect"></select>
+  <label>Filter out:</label>
+  <input id="filterOut" type="text" placeholder="e.g. career, story, data" style="background:#333;color:#eee;border:1px solid #555;border-radius:4px;padding:4px 8px;font-size:13px;width:250px">
+  <span id="status" style="font-size:12px;color:#666"></span>
+</div>
+<div id="main">
+  <div id="map"><canvas id="c"></canvas><div id="tooltip"></div></div>
+  <div id="sidebar"><div id="info"><h2 style="color:#666">Click a dot to inspect</h2></div><div id="docs"></div></div>
+</div>
+<script src="/app.js?v=11"></script>
+</body></html>
