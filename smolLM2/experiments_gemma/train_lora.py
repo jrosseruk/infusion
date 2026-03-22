@@ -18,7 +18,7 @@ from peft import LoraConfig, get_peft_model, TaskType
 # Config
 MODEL_NAME = "google/gemma-3-4b-it"
 OUTPUT_DIR = "/home/mac/infusion/infusion_hf/gemma3_4b/lora_smoltalk"
-NUM_SAMPLES = 100_000
+NUM_SAMPLES = 50_000
 MAX_SEQ_LEN = 2048
 SEED = 42
 LORA_R = 8
@@ -26,7 +26,7 @@ LORA_ALPHA = 16
 LORA_DROPOUT = 0.05
 LORA_TARGETS = ["q_proj", "v_proj"]
 LR = 2e-4
-N_EPOCHS = 2
+N_EPOCHS = 3
 BATCH_SIZE = 4
 GRAD_ACCUM = 2
 
@@ -114,11 +114,21 @@ def main():
         remove_unused_columns=False,
     )
 
+    def pad_collate(features):
+        max_len = max(len(f["input_ids"]) for f in features)
+        batch = {"input_ids": [], "attention_mask": [], "labels": []}
+        for f in features:
+            pad_len = max_len - len(f["input_ids"])
+            batch["input_ids"].append(f["input_ids"] + [tokenizer.pad_token_id] * pad_len)
+            batch["attention_mask"].append([1] * len(f["input_ids"]) + [0] * pad_len)
+            batch["labels"].append(f["labels"] + [-100] * pad_len)
+        return {k: torch.tensor(v) for k, v in batch.items()}
+
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=tokenized,
-        data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
+        data_collator=pad_collate,
     )
 
     if is_main:
