@@ -4,12 +4,6 @@
 [submodule "gpt-tinystories"]
 	path = gpt-tinystories
 	url = git@github.com:raymond-van/gpt-tinystories.git
-[submodule "dare"]
-	path = dare
-	url = https://github.com/jrosseruk/dare.git
 [submodule "infusion_hf"]
 	path = infusion_hf
 	url = git@hf.co:datasets/jrosseruk/infusion_hf
-[submodule "gradient_atoms"]
-	path = gradient_atoms
-	url = git@github.com:jrosseruk/gradient_atoms.git
