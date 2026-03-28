@@ -4,6 +4,3 @@
 [submodule "gpt-tinystories"]
 	path = gpt-tinystories
 	url = git@github.com:raymond-van/gpt-tinystories.git
-[submodule "infusion_hf"]
-	path = infusion_hf
-	url = git@hf.co:datasets/jrosseruk/infusion_hf
