@@ -25,7 +25,7 @@ TWEET 2 / 7 — links only
 -----------
 Paper: https://arxiv.org/abs/2602.09987
 Code: https://github.com/jrosseruk/infusion
-Write-up: https://www.lesswrong.com/posts/hBrb5Ljq76hGzsmBB/infusion-reverse-engineering-influence-functions-to-craft
+LessWrong: https://www.lesswrong.com/posts/hBrb5Ljq76hGzsmBB/infusion-reverse-engineering-influence-functions-to-craft
 Workshop (DATA-FM @ ICLR 2026): https://data-fm-iclr2026.github.io/
 
 

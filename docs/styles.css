@@ -135,7 +135,6 @@ main {
     max-width: 48rem;
     margin: 0 auto;
     padding: 0 1.5rem;
-    overflow-x: hidden;
 }
 
 /* ---- Funding / compute acknowledgments ---- */
@@ -202,7 +201,6 @@ main {
     padding: 8rem 0 4rem;
     position: relative;
     isolation: isolate;
-    overflow-x: hidden;
 }
 
 #hero::before {
@@ -211,7 +209,8 @@ main {
     left: 50%;
     top: 42%;
     transform: translate(-50%, -50%);
-    width: min(140%, 52rem);
+    /* 140% + overflow-x on #hero caused a nested vertical scrollbar (overflow-y → auto). */
+    width: 100%;
     height: 120%;
     z-index: -1;
     pointer-events: none;
@@ -637,12 +636,6 @@ em {
     }
     .ack-text { font-size: 0.78rem; }
     #hero { padding-top: 5rem; }
-
-    /* 140% width scrim extended past the viewport on narrow screens */
-    #hero::before {
-        width: 100%;
-        max-width: 100%;
-    }
 
     .pgd-columns {
         grid-template-columns: 1fr;
