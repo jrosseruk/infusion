@@ -9,16 +9,25 @@ function pickGridResolution() {
     const coarse = window.matchMedia('(pointer: coarse)').matches;
     const saveData = typeof navigator.connection !== 'undefined' &&
         navigator.connection.saveData === true;
-    if (saveData || narrow) return 48;
+    if (saveData || narrow) return 40;
     if (coarse && w < 1100) return 56;
     const lowMem = typeof navigator.deviceMemory === 'number' && navigator.deviceMemory <= 4;
     if (lowMem || w < 900) return 72;
     return 100;
 }
 
+/** Phones / touch-first devices: skip finger-driven landscape ripples so scrolling feels normal. Desktop (fine pointer + hover) unchanged. */
+function isTouchPrimaryDevice() {
+    return window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+}
+
 const GRID_N = pickGridResolution();
 const HALF_N = GRID_N / 2;
-const GPU_THROTTLE_MS = GRID_N < 80 ? 1000 / 30 : 0;
+
+/** Fewer pixels to shade + optional frozen waves — not used for touch gating alone */
+function useMobileLandscapeLite() {
+    return isTouchPrimaryDevice() || window.matchMedia('(max-width: 768px)').matches;
+}
 const CAM_TILT = 0.55;
 const COS_TILT = Math.cos(CAM_TILT);
 const SIN_TILT = Math.sin(CAM_TILT);
@@ -39,7 +48,8 @@ function vertSrc() {
     return `
 precision mediump float;
 attribute vec2 a_grid;
-uniform float u_time;
+uniform float u_simTime;
+uniform float u_waveTime;
 uniform vec2 u_mouse;
 uniform float u_mouseActive;
 uniform vec4 u_impulses[${MAX_IMPULSES}];
@@ -74,7 +84,7 @@ void main() {
     float half_N = ${HALF_N.toFixed(1)};
     vec2 w = a_grid - half_N;
 
-    float h = baseHeight(w, u_time);
+    float h = baseHeight(w, u_waveTime);
 
     // Mouse warp
     if (u_mouseActive > 0.5) {
@@ -90,7 +100,7 @@ void main() {
     for (int k = 0; k < ${MAX_IMPULSES}; k++) {
         if (k >= u_impulseCount) break;
         vec4 imp = u_impulses[k];
-        float age = u_time - imp.z;
+        float age = u_simTime - imp.z;
         float str = abs(imp.w);
         float sgn = sign(imp.w);
         float dur = 2.0 + str;
@@ -149,7 +159,7 @@ varying float v_prevMinDist;
 uniform float u_minGlow;
 uniform float u_minTransition;
 uniform float u_lockFlash;
-uniform float u_time;
+uniform float u_waveTime;
 uniform float u_lightMode;
 
 void main() {
@@ -177,8 +187,8 @@ void main() {
     }
 
     // Gold glow near minimum
-    vec3 goldDark = mix(vec3(0.7, 0.55, 0.1), vec3(1.0, 0.84, 0.0), 0.5 + 0.5 * sin(u_time * 2.0));
-    vec3 goldLight = mix(vec3(0.7, 0.5, 0.0), vec3(0.85, 0.65, 0.0), 0.5 + 0.5 * sin(u_time * 2.0));
+    vec3 goldDark = mix(vec3(0.7, 0.55, 0.1), vec3(1.0, 0.84, 0.0), 0.5 + 0.5 * sin(u_waveTime * 2.0));
+    vec3 goldLight = mix(vec3(0.7, 0.5, 0.0), vec3(0.85, 0.65, 0.0), 0.5 + 0.5 * sin(u_waveTime * 2.0));
     vec3 gold = mix(goldDark, goldLight, u_lightMode);
 
     float minInf = exp(-v_minDist * v_minDist / 60.0) * u_minGlow;
@@ -242,14 +252,12 @@ class LossLandscape {
             alpha: true,
             premultipliedAlpha: true,
             antialias: !lite,
-            powerPreference: lite ? 'low-power' : 'default',
-            desynchronized: true,
+            powerPreference: 'default',
         });
         if (!gl) { showError('WebGL not supported'); return; }
         this.gl = gl;
-        this.gpuThrottleMs = GPU_THROTTLE_MS;
-        this._lastDrawRafMs = 0;
         this._rafId = null;
+        this._frozenWavePhase = Math.random() * 20;
         this.mouse = { x: -9999, y: -9999 };
         this.mouseActive = false;
         this.editImpulses = [];
@@ -310,7 +318,8 @@ class LossLandscape {
         gl.useProgram(this.program);
         this.loc = {
             grid: gl.getAttribLocation(this.program, 'a_grid'),
-            time: gl.getUniformLocation(this.program, 'u_time'),
+            simTime: gl.getUniformLocation(this.program, 'u_simTime'),
+            waveTime: gl.getUniformLocation(this.program, 'u_waveTime'),
             mouse: gl.getUniformLocation(this.program, 'u_mouse'),
             mouseActive: gl.getUniformLocation(this.program, 'u_mouseActive'),
             impulseCount: gl.getUniformLocation(this.program, 'u_impulseCount'),
@@ -369,8 +378,16 @@ class LossLandscape {
     }
 
     resize() {
-        this.canvas.width = window.innerWidth;
-        this.canvas.height = window.innerHeight;
+        let w = window.innerWidth;
+        let h = window.innerHeight;
+        /* ~4× fewer framebuffer pixels on phones — CSS still fills the viewport */
+        if (useMobileLandscapeLite()) {
+            const factor = 0.5;
+            w = Math.max(1, Math.round(w * factor));
+            h = Math.max(1, Math.round(h * factor));
+        }
+        this.canvas.width = w;
+        this.canvas.height = h;
         if (this.gl) this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         this.computeScale();
     }
@@ -383,12 +400,14 @@ class LossLandscape {
             this.mouseActive = true;
         });
         window.addEventListener('mouseleave', () => { this.mouseActive = false; });
-        window.addEventListener('touchmove', (e) => {
-            this.mouse.x = e.touches[0].clientX;
-            this.mouse.y = e.touches[0].clientY;
-            this.mouseActive = true;
-        }, { passive: true });
-        window.addEventListener('touchend', () => { this.mouseActive = false; });
+        if (!isTouchPrimaryDevice()) {
+            window.addEventListener('touchmove', (e) => {
+                this.mouse.x = e.touches[0].clientX;
+                this.mouse.y = e.touches[0].clientY;
+                this.mouseActive = true;
+            }, { passive: true });
+            window.addEventListener('touchend', () => { this.mouseActive = false; });
+        }
 
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
@@ -459,7 +478,10 @@ class LossLandscape {
         gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
         gl.useProgram(this.program);
-        gl.uniform1f(this.loc.time, t);
+        const lite = useMobileLandscapeLite();
+        const waveT = lite ? this._frozenWavePhase : t;
+        gl.uniform1f(this.loc.simTime, t);
+        gl.uniform1f(this.loc.waveTime, waveT);
         gl.uniform2f(this.loc.scale, this.scaleX, this.scaleY);
 
         if (this.mouseActive) {
@@ -495,7 +517,7 @@ class LossLandscape {
     }
 
     animate() {
-        const step = (rafMs) => {
+        const step = () => {
             if (document.hidden) {
                 this._rafId = null;
                 return;
@@ -507,8 +529,6 @@ class LossLandscape {
             this.time = now;
             this.updateMinimum(dt);
 
-            if (this.gpuThrottleMs > 0 && (rafMs - this._lastDrawRafMs) < this.gpuThrottleMs) return;
-            this._lastDrawRafMs = rafMs;
             this.draw(now);
         };
         if (this._rafId == null) this._rafId = requestAnimationFrame(step);
@@ -523,8 +543,10 @@ class RevealWatcher {
             entries.forEach(entry => {
                 if (entry.isIntersecting && !entry.target.classList.contains('visible')) {
                     entry.target.classList.add('visible');
-                    const r = entry.target.getBoundingClientRect();
-                    landscape.addImpulse(r.left + r.width/2, r.top + r.height/2, 1.5);
+                    if (!isTouchPrimaryDevice()) {
+                        const r = entry.target.getBoundingClientRect();
+                        landscape.addImpulse(r.left + r.width/2, r.top + r.height/2, 1.5);
+                    }
                 }
             });
         }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
@@ -535,6 +557,7 @@ class RevealWatcher {
 class HoverWatcher {
     constructor(landscape) {
         document.addEventListener('mouseenter', (e) => {
+            if (isTouchPrimaryDevice()) return;
             const el = e.target.closest('a, .btn, .card');
             if (!el || el._hp) return;
             el._hp = true;
@@ -547,8 +570,12 @@ class HoverWatcher {
 
 class ClickWatcher {
     constructor(landscape) {
-        document.addEventListener('mousedown', (e) => landscape.addImpulse(e.clientX, e.clientY, 2.0));
+        document.addEventListener('mousedown', (e) => {
+            if (isTouchPrimaryDevice()) return;
+            landscape.addImpulse(e.clientX, e.clientY, 2.0);
+        });
         document.addEventListener('touchstart', (e) => {
+            if (isTouchPrimaryDevice()) return;
             landscape.addImpulse(e.touches[0].clientX, e.touches[0].clientY, 2.0);
         }, { passive: true });
     }
