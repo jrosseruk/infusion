@@ -9,6 +9,11 @@ const COS_TILT = Math.cos(CAM_TILT);
 const SIN_TILT = Math.sin(CAM_TILT);
 const MAX_IMPULSES = 20;
 
+/** Touch phones: don't tie window touchmove to the mesh warp (scroll would distort the landscape). */
+function isCoarseTouchDevice() {
+    return window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+}
+
 const BASINS = [
     { wx: -6, wy: -3 },
     { wx:  8, wy:  5 },
@@ -241,6 +246,8 @@ class LossLandscape {
 
         if (!this.initShaders()) return;
         this.initBuffers();
+        this._cw = undefined;
+        this._ch = undefined;
         this.resize();
         this.bindEvents();
         this.animate();
@@ -344,26 +351,38 @@ class LossLandscape {
     }
 
     resize() {
-        this.canvas.width = window.innerWidth;
-        this.canvas.height = window.innerHeight;
+        const vv = window.visualViewport;
+        const w = Math.max(1, Math.round(vv ? vv.width : window.innerWidth));
+        const h = Math.max(1, Math.round(vv ? vv.height : window.innerHeight));
+        if (this._cw === w && this._ch === h) return;
+        this._cw = w;
+        this._ch = h;
+        this.canvas.width = w;
+        this.canvas.height = h;
         if (this.gl) this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         this.computeScale();
     }
 
     bindEvents() {
         window.addEventListener('resize', () => this.resize());
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', () => this.resize());
+        }
         window.addEventListener('mousemove', (e) => {
             this.mouse.x = e.clientX;
             this.mouse.y = e.clientY;
             this.mouseActive = true;
         });
         window.addEventListener('mouseleave', () => { this.mouseActive = false; });
-        window.addEventListener('touchmove', (e) => {
-            this.mouse.x = e.touches[0].clientX;
-            this.mouse.y = e.touches[0].clientY;
-            this.mouseActive = true;
-        }, { passive: true });
-        window.addEventListener('touchend', () => { this.mouseActive = false; });
+        /* Finger-drag scroll on phones was driving u_mouseActive and warping the whole mesh */
+        if (!isCoarseTouchDevice()) {
+            window.addEventListener('touchmove', (e) => {
+                this.mouse.x = e.touches[0].clientX;
+                this.mouse.y = e.touches[0].clientY;
+                this.mouseActive = true;
+            }, { passive: true });
+            window.addEventListener('touchend', () => { this.mouseActive = false; });
+        }
     }
 
     addImpulse(sx, sy, strength) {
@@ -472,12 +491,16 @@ class LossLandscape {
 
 class RevealWatcher {
     constructor(landscape) {
+        const narrow = window.matchMedia('(max-width: 768px)').matches;
+        const skipImpulse = isCoarseTouchDevice() || narrow;
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting && !entry.target.classList.contains('visible')) {
                     entry.target.classList.add('visible');
-                    const r = entry.target.getBoundingClientRect();
-                    landscape.addImpulse(r.left + r.width/2, r.top + r.height/2, 1.5);
+                    if (!skipImpulse) {
+                        const r = entry.target.getBoundingClientRect();
+                        landscape.addImpulse(r.left + r.width/2, r.top + r.height/2, 1.5);
+                    }
                 }
             });
         }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
