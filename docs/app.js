@@ -2,8 +2,23 @@
 // Infusion — Loss Landscape Background (WebGL)
 // ============================================================
 
-const GRID_N = 100;
+/** Smaller grid + fewer draws on phones / coarse pointer — big win vs ~20k line segments @ N=100 */
+function pickGridResolution() {
+    const w = window.innerWidth;
+    const narrow = window.matchMedia('(max-width: 768px)').matches;
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    const saveData = typeof navigator.connection !== 'undefined' &&
+        navigator.connection.saveData === true;
+    if (saveData || narrow) return 48;
+    if (coarse && w < 1100) return 56;
+    const lowMem = typeof navigator.deviceMemory === 'number' && navigator.deviceMemory <= 4;
+    if (lowMem || w < 900) return 72;
+    return 100;
+}
+
+const GRID_N = pickGridResolution();
 const HALF_N = GRID_N / 2;
+const GPU_THROTTLE_MS = GRID_N < 80 ? 1000 / 30 : 0;
 const CAM_TILT = 0.55;
 const COS_TILT = Math.cos(CAM_TILT);
 const SIN_TILT = Math.sin(CAM_TILT);
@@ -222,9 +237,19 @@ function showError(msg) {
 class LossLandscape {
     constructor(canvas) {
         this.canvas = canvas;
-        const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: true });
+        const lite = GRID_N < 80;
+        const gl = canvas.getContext('webgl', {
+            alpha: true,
+            premultipliedAlpha: true,
+            antialias: !lite,
+            powerPreference: lite ? 'low-power' : 'default',
+            desynchronized: true,
+        });
         if (!gl) { showError('WebGL not supported'); return; }
         this.gl = gl;
+        this.gpuThrottleMs = GPU_THROTTLE_MS;
+        this._lastDrawRafMs = 0;
+        this._rafId = null;
         this.mouse = { x: -9999, y: -9999 };
         this.mouseActive = false;
         this.editImpulses = [];
@@ -364,6 +389,17 @@ class LossLandscape {
             this.mouseActive = true;
         }, { passive: true });
         window.addEventListener('touchend', () => { this.mouseActive = false; });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                if (this._rafId != null) {
+                    cancelAnimationFrame(this._rafId);
+                    this._rafId = null;
+                }
+            } else if (this._rafId == null) {
+                this.animate();
+            }
+        });
     }
 
     addImpulse(sx, sy, strength) {
@@ -459,12 +495,23 @@ class LossLandscape {
     }
 
     animate() {
-        const now = performance.now() / 1000;
-        const dt = Math.min(now - this.time, 0.1);
-        this.time = now;
-        this.updateMinimum(dt);
-        this.draw(now);
-        requestAnimationFrame(() => this.animate());
+        const step = (rafMs) => {
+            if (document.hidden) {
+                this._rafId = null;
+                return;
+            }
+            this._rafId = requestAnimationFrame(step);
+
+            const now = performance.now() / 1000;
+            const dt = Math.min(now - this.time, 0.1);
+            this.time = now;
+            this.updateMinimum(dt);
+
+            if (this.gpuThrottleMs > 0 && (rafMs - this._lastDrawRafMs) < this.gpuThrottleMs) return;
+            this._lastDrawRafMs = rafMs;
+            this.draw(now);
+        };
+        if (this._rafId == null) this._rafId = requestAnimationFrame(step);
     }
 }
 
