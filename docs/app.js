@@ -248,7 +248,10 @@ class LossLandscape {
         this.initBuffers();
         this._cw = undefined;
         this._ch = undefined;
+        this._layoutBaseW = null;
         this.resize();
+        /* Late layout on iOS: second frame picks up correct clientWidth/height */
+        requestAnimationFrame(() => this.resize());
         this.bindEvents();
         this.animate();
     }
@@ -351,9 +354,22 @@ class LossLandscape {
     }
 
     resize() {
-        const vv = window.visualViewport;
-        const w = Math.max(1, Math.round(vv ? vv.width : window.innerWidth));
-        const h = Math.max(1, Math.round(vv ? vv.height : window.innerHeight));
+        const w = Math.max(1, Math.round(this.canvas.clientWidth));
+        const hRaw = Math.max(1, Math.round(this.canvas.clientHeight));
+
+        /* When lvh isn’t available, height can grow when chrome hides — track peak so we only
+           resize bitmap once. Reset width band on real relayout (rotation). */
+        if (this._layoutBaseW == null) {
+            this._layoutBaseW = w;
+            this._layoutPeakH = hRaw;
+        } else if (Math.abs(w - this._layoutBaseW) > 24) {
+            this._layoutBaseW = w;
+            this._layoutPeakH = hRaw;
+        } else {
+            this._layoutPeakH = Math.max(this._layoutPeakH, hRaw);
+        }
+        const h = this._layoutPeakH;
+
         if (this._cw === w && this._ch === h) return;
         this._cw = w;
         this._ch = h;
@@ -365,9 +381,12 @@ class LossLandscape {
 
     bindEvents() {
         window.addEventListener('resize', () => this.resize());
-        if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', () => this.resize());
-        }
+        window.addEventListener('orientationchange', () => {
+            this._layoutBaseW = null;
+            this._cw = undefined;
+            this._ch = undefined;
+            setTimeout(() => this.resize(), 200);
+        });
         window.addEventListener('mousemove', (e) => {
             this.mouse.x = e.clientX;
             this.mouse.y = e.clientY;

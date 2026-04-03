@@ -76,10 +76,14 @@ body {
 #landscape-canvas {
     position: fixed;
     top: 0; left: 0;
-    width: 100%; height: 100%;
+    width: 100%;
+    /* 100vh: fallback. 100lvh ≈ height with mobile browser chrome retracted, so backing store
+       doesn’t change when the URL bar hides after the first scroll (avoids WebGL scale jump). */
+    height: 100vh;
+    height: 100lvh;
     z-index: 0;
     pointer-events: none;
-    /* Match page bg under WebGL so clearing hasn't happened yet */
+    /* Match page bg under WebGL so clearing hasn’t happened yet */
     background: var(--bg);
 }
 
