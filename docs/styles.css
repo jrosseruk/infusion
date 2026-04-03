@@ -164,37 +164,60 @@ main {
         0 0 0 1px var(--gold-dim);
 }
 
-.ack-label {
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.16em;
-    color: var(--gold);
-    margin-bottom: 0.55rem;
-}
-
-.ack-text {
+.ack-line {
     margin: 0;
-    font-size: 0.82rem;
-    line-height: 1.65;
-    color: color-mix(in srgb, var(--text) 88%, var(--text-dim));
-}
-
-.ack-text + .ack-text {
-    margin-top: 0.65rem;
-}
-
-.ack-text a {
-    color: var(--accent-2);
-    text-decoration: none;
+    text-align: center;
+    font-size: 0.88rem;
+    line-height: 1.55;
     font-weight: 500;
-    border-bottom: 1px solid color-mix(in srgb, var(--accent-2) 35%, transparent);
-    transition: border-color 0.15s ease, color 0.15s ease;
+    letter-spacing: 0.03em;
+    background: linear-gradient(
+        120deg,
+        var(--gold) 0%,
+        color-mix(in srgb, var(--gold) 75%, #fff 25%) 45%,
+        var(--gold) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 20px color-mix(in srgb, var(--gold) 35%, transparent));
 }
 
-.ack-text a:hover {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
+[data-theme="light"] .ack-line {
+    background: linear-gradient(
+        120deg,
+        #b45309 0%,
+        var(--gold) 50%,
+        #ca8a04 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+}
+
+.ack-line a {
+    font-weight: 700;
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--gold) 55%, transparent);
+    transition: border-color 0.15s ease, filter 0.15s ease;
+    /* Keep links readable inside gradient text */
+    -webkit-text-fill-color: var(--gold);
+    background: none;
+    -webkit-background-clip: unset;
+    background-clip: unset;
+    filter: none;
+}
+
+.ack-line a:hover {
+    border-bottom-color: var(--gold);
+    filter: drop-shadow(0 0 8px color-mix(in srgb, var(--gold) 40%, transparent));
+}
+
+[data-theme="light"] .ack-line a {
+    -webkit-text-fill-color: #b45309;
+}
+
+[data-theme="light"] .ack-line a:hover {
+    -webkit-text-fill-color: var(--gold);
 }
 
 /* ---- Hero ---- */
@@ -636,7 +659,7 @@ em {
         margin: 1.5rem 0 1.75rem;
         padding: 1rem 1.25rem 1.1rem;
     }
-    .ack-text { font-size: 0.78rem; }
+    .ack-line { font-size: 0.82rem; }
     #hero { padding-top: 5rem; }
 
     .pgd-columns {
