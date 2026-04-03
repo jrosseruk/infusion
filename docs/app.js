@@ -23,11 +23,6 @@ function isTouchPrimaryDevice() {
 
 const GRID_N = pickGridResolution();
 const HALF_N = GRID_N / 2;
-
-/** Fewer pixels to shade + optional frozen waves — not used for touch gating alone */
-function useMobileLandscapeLite() {
-    return isTouchPrimaryDevice() || window.matchMedia('(max-width: 768px)').matches;
-}
 const CAM_TILT = 0.55;
 const COS_TILT = Math.cos(CAM_TILT);
 const SIN_TILT = Math.sin(CAM_TILT);
@@ -257,7 +252,6 @@ class LossLandscape {
         if (!gl) { showError('WebGL not supported'); return; }
         this.gl = gl;
         this._rafId = null;
-        this._frozenWavePhase = Math.random() * 20;
         this.mouse = { x: -9999, y: -9999 };
         this.mouseActive = false;
         this.editImpulses = [];
@@ -378,16 +372,8 @@ class LossLandscape {
     }
 
     resize() {
-        let w = window.innerWidth;
-        let h = window.innerHeight;
-        /* ~4× fewer framebuffer pixels on phones — CSS still fills the viewport */
-        if (useMobileLandscapeLite()) {
-            const factor = 0.5;
-            w = Math.max(1, Math.round(w * factor));
-            h = Math.max(1, Math.round(h * factor));
-        }
-        this.canvas.width = w;
-        this.canvas.height = h;
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
         if (this.gl) this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         this.computeScale();
     }
@@ -478,10 +464,8 @@ class LossLandscape {
         gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
         gl.useProgram(this.program);
-        const lite = useMobileLandscapeLite();
-        const waveT = lite ? this._frozenWavePhase : t;
         gl.uniform1f(this.loc.simTime, t);
-        gl.uniform1f(this.loc.waveTime, waveT);
+        gl.uniform1f(this.loc.waveTime, t);
         gl.uniform2f(this.loc.scale, this.scaleX, this.scaleY);
 
         if (this.mouseActive) {
