@@ -1,0 +1,72 @@
+================================================================================
+TWITTER / X THREAD — Infusion announcement (7 tweets)
+================================================================================
+
+IMAGE FOR TWEET 1 (you'll make this):
+  • Overlay or composite the paper (title + arXiv branding or first page crop)
+    on the Infusion site / loss-landscape WebGL aesthetic (deep indigo–purple
+    gradients from docs/index.html).
+  • Rotate the paper slightly (~6–12°), add a soft drop shadow + maybe a
+    subtle inner glow so it reads as a "hero card" not a flat screenshot.
+  • Optional: very slight blur on the background so the paper stays sharp.
+
+================================================================================
+
+TWEET 1 / 7
+-----------
+📣 New paper alert: *Infusion* — influence-style gradients craft tiny training-data edits that steer models. CIFAR + LMs; wins + limits.
+
+Finally live after a long haul. Thanks Robert Kirk, Edward Grefenstette, Jakob Foerster, Laura Ruis, UK AISI Challenge Fund & Isambard-AI.
+
+[Attach the slanted paper-on-background image here]
+
+
+TWEET 2 / 7 — links only
+-----------
+Paper: https://arxiv.org/abs/2602.09987
+Code: https://github.com/jrosseruk/infusion
+Write-up: https://www.lesswrong.com/posts/hBrb5Ljq76hGzsmBB/infusion-reverse-engineering-influence-functions-to-craft
+Workshop (DATA-FM @ ICLR 2026): https://data-fm-iclr2026.github.io/
+
+
+TWEET 3 / 7
+-----------
+What if influence functions weren't only for *explaining* training data's role — but for *crafting* subtle edits that steer behaviour?
+
+Infusion: document perturbations + influence-style gradients + PGD. Hessian structure matters at the scales we study.
+
+
+TWEET 4 / 7
+-----------
+On CIFAR-10, editing just 0.2% of training images could compete with a much cruder baseline: inserting explicit target-labelled copies. Similar effect, subtler footprint.
+
+We also see cross-architecture transfer — one edited corpus nudging more than one trained model.
+
+
+TWEET 5 / 7
+-----------
+Language experiments are the sobering half: we show when probability shifts appear, when high confidence leaves no headroom, and when PGD does semantically weird token edits without an explicit "meaning" objective.
+
+Worth reading even if you only care about failure modes.
+
+
+TWEET 6 / 7
+-----------
+If tiny, hard-to-detect training-data edits can systematically shape models, that's both a security story and a push for training-data attribution at real scale.
+
+Same ideas cut both ways — understanding the surface area matters for defenders too.
+
+
+TWEET 7 / 7
+-----------
+If robustness, poisoning, or influence at serious scale is your thing, we'd love the citations, the nitpicks, and the arguments.
+
+Read the paper, run the code, tell us what breaks. 💜
+
+================================================================================
+NOTES FOR PASTING
+================================================================================
+• Post tweet 1 with image first; tweet 2 is link-only as requested.
+• Want more length? Add a tweet with your favourite figure from the paper, or
+  a quote you'd defend in the Q&A.
+• Body text for tweets 1–7 is ≤280 characters as of plain-text count (X may count URLs differently in link previews).

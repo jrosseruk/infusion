@@ -4,6 +4,11 @@
     padding: 0;
 }
 
+html {
+    overflow-x: hidden;
+    max-width: 100%;
+}
+
 /* ---- Dark theme (default) ---- */
 :root, [data-theme="dark"] {
     --bg: #0a0a12;
@@ -64,6 +69,7 @@ body {
     color: var(--text);
     line-height: 1.7;
     overflow-x: hidden;
+    max-width: 100%;
 }
 
 /* Canvas */
@@ -88,8 +94,8 @@ body {
 /* Theme toggle */
 .theme-toggle {
     position: fixed;
-    top: 1rem;
-    right: 1rem;
+    top: max(1rem, env(safe-area-inset-top, 0px));
+    right: max(1rem, env(safe-area-inset-right, 0px));
     z-index: 50;
     background: var(--card-bg);
     backdrop-filter: blur(12px);
@@ -129,6 +135,7 @@ main {
     max-width: 48rem;
     margin: 0 auto;
     padding: 0 1.5rem;
+    overflow-x: hidden;
 }
 
 /* ---- Funding / compute acknowledgments ---- */
@@ -195,6 +202,7 @@ main {
     padding: 8rem 0 4rem;
     position: relative;
     isolation: isolate;
+    overflow-x: hidden;
 }
 
 #hero::before {
@@ -620,13 +628,21 @@ em {
 @media (max-width: 640px) {
     .title { font-size: 2.5rem; }
     .card { padding: 1.5rem 1.25rem; }
+    /* Full-bleed calc + neg margins caused horizontal scroll on mobile; keep in flow */
     .ack-banner {
-        width: calc(100% + 3rem);
-        margin: 1.5rem -1.5rem 1.75rem;
+        width: 100%;
+        max-width: 100%;
+        margin: 1.5rem 0 1.75rem;
         padding: 1rem 1.25rem 1.1rem;
     }
     .ack-text { font-size: 0.78rem; }
     #hero { padding-top: 5rem; }
+
+    /* 140% width scrim extended past the viewport on narrow screens */
+    #hero::before {
+        width: 100%;
+        max-width: 100%;
+    }
 
     .pgd-columns {
         grid-template-columns: 1fr;
