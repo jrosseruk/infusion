@@ -1,0 +1,372 @@
+\documentclass{article}
+\usepackage{mathpazo}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{bm}
+\usepackage{caption}
+\usepackage[capitalize,noabbrev]{cleveref} %
+\crefformat{section}{\S#2#1#3} %
+\crefformat{subsection}{\S#2#1#3}
+\crefformat{subsubsection}{\S#2#1#3}
+
+\usepackage{comment}
+
+\usepackage{textcomp}
+\usepackage{tikz}
+\usepackage{graphicx}
+\usepackage{forest}
+\usepackage{tikz}
+\usepackage{amssymb}%
+\usepackage{pifont}%
+\newcommand{\cmark}{\ding{51}}%
+\newcommand{\dtarg}{D}
+\newcommand{\xmark}{\ding{55}}%
+\newcommand{\st}[1]{\mathbf{s}_{#1}}
+\newcommand{\ind}[1]{\mathbf{1}_{#1}}
+
+\usepackage{tikz-cd}
+\usepackage{pgf}
+\usepackage{pgfplots}
+\usepackage{pgfplotstable}
+\pgfplotsset{compat=newest}
+\usepgfplotslibrary{groupplots,colorbrewer,fillbetween,colormaps}
+\usetikzlibrary{plotmarks} %
+\usetikzlibrary{backgrounds}
+\usetikzlibrary{arrows.meta}
+
+\makeatletter
+\pgfmathdeclarefunction{strcmp}{2}{%
+  \begingroup
+  \edef\pgfmath@tempa{#1}%
+  \edef\pgfmath@tempb{#2}%
+  \pgfmathparse{%
+    \ifnum\pdfstrcmp(\pgfmath@tempa,\pgfmath@tempb)==0 0\else 1\fi%
+  }%
+  \endgroup
+}
+\makeatother
+
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+\newtheorem{definition}{Definition}
+\newtheorem{remark}{Remark}
+
+\usepackage{nicefrac}
+\usetikzlibrary{decorations.pathreplacing} %
+\usetikzlibrary{positioning,arrows.meta,decorations.pathreplacing}
+\usetikzlibrary{patterns}
+\usetikzlibrary {patterns,patterns.meta}
+\usetikzlibrary{shapes.geometric}
+\usetikzlibrary{fit,calc}
+\newcommand*{\tikzmk}[1]{\tikz[remember picture,overlay,] \node (#1)
+{};\ignorespaces}
+\newcommand{\boxit}[1]{\tikz[remember
+  picture,overlay]{\node[yshift=3pt,fill=#1,opacity=.25,fit={(A)($(B)+(.95\linewidth,.8\baselineskip)$)}]
+{};}\ignorespaces}
+\colorlet{mypink}{red!40}
+\colorlet{myblue}{cyan!60}
+
+\definecolor{commentcolor}{RGB}{77, 77, 77}
+\definecolor{forcolor}{RGB}{203, 49, 56}
+\definecolor{fncolor}{RGB}{93, 48, 175}
+
+\usepackage{xspace}
+\newcommand{\replay}{\textsc{Replay}\xspace}
+\newcommand{\simplereplay}{\textsc{SimpleReplay}\xspace}
+
+\tikzset{
+  simple cylinder/.style={
+    shape=cylinder,
+    draw,
+    shape aspect=0.2,
+    cylinder uses custom fill,
+    shape border rotate=90,
+    transform shape,
+  }
+}
+
+\DeclareRobustCommand\tikzinlinecylinder{\raisebox{-0.05em}{\tikz
+\node[simple cylinder, fill=gray!20,inner sep=3.2pt,outer sep=3.2pt] {};}}
+
+\newcommand{\pfrac}[2]{\frac{\partial #1}{\partial #2}}
+\newcommand{\npfrac}[2]{\nicefrac{\partial #1}{\partial #2}}
+\newcommand{\adj}[1]{\pfrac{L(z)}{ #1 }}
+\usepackage[linesnumbered,ruled,vlined]{algorithm2e}
+\let\oldtcp\tcp
+
+\let\oldnl\nl
+\newcommand{\nonl}{\renewcommand{\nl}{\let\nl\oldnl}}
+
+\renewcommand{\tcp}[1]{\oldtcp{\textcolor{commentcolor}{#1}}}
+\renewcommand{\epsilon}{\varepsilon}
+
+\usepackage{nicefrac}
+\usepackage{color-edits}
+\usepackage{enumitem}
+\usepackage{amsfonts} %
+\DeclareMathSymbol{\shortminuss}{\mathbin}{AMSa}{"39}
+\newcommand{\shortminus}[1]{-} %
+
+\addauthor[Andrew]{ai}{blue}
+
+\usepackage[backend=biber,style=alphabetic,natbib=true,maxbibnames=99,minalphanames=3,maxcitenames=2]{biblatex}
+\usepackage[T1]{fontenc}
+\usepackage{booktabs}
+\addbibresource{bibliography/fmt_bib.bib}
+
+\usepackage[colorinlistoftodos,textsize=tiny,textwidth=2.1cm,shadow,loadshadowlibrary]{todonotes}
+\newcommand{\ilyas}[1]{\todo{ILYAS: #1}}
+\newcommand{\engstrom}[1]{\todo[linecolor=orange,backgroundcolor=yellow,bordercolor=black]{ENGSTROM:
+#1}}
+\newcommand{\loganinline}[1]{\todo[inline,size=\normalfont,backgroundcolor=yellow]{logan:
+#1 }}
+\newcommand{\benchen}[1]{\todo[linecolor=pink,backgroundcolor=pink,bordercolor=black]{BENCHEN
+#1}}
+\usepackage{appendix}
+\usepackage{subcaption}
+
+\definecolor{mygreen}{rgb}{0.00784313725490196, 0.6196078431372549,
+0.45098039215686275}
+\definecolor{myred}{rgb}{0.8352941176470589, 0.3686274509803922, 0.0}
+\definecolor{mydarkblue}{rgb}{0,0.08,0.85}
+\definecolor{mylightblue}{rgb}{0.06,0.56,1.0}
+\definecolor{mylightorange}{rgb}{1.0,0.62,0.12}
+\definecolor{mylightred}{rgb}{0.99,0.00,0.04}
+\definecolor{pgfcolor0}{HTML}{66c1a5}
+\definecolor{pgfcolor1}{HTML}{fc8c61}
+\definecolor{pgfcolor2}{HTML}{8ca0cb}
+\definecolor{pgfcolor3}{HTML}{e68ac3}
+\hypersetup{colorlinks=true,
+  linkcolor=mydarkblue,
+  citecolor=mydarkblue,
+  filecolor=mydarkblue,
+  urlcolor=mydarkblue,
+  bookmarksopen=true,
+linktoc=page}
+
+\usepackage[T1]{fontenc}
+\title{Optimizing ML Training with Metagradient Descent}
+
+\newcommand\AND{
+    \end{tabular}\hfil\linebreak[4]\hfil%
+    \begin{tabular}[t]{c}\ignorespaces%
+}
+\author{
+    Logan Engstrom${}^{*\,1}$,
+    Andrew Ilyas${}^{*\,2}$\stepcounter{footnote}\footnote{Work done at MIT EECS. Correspondence to \texttt{\{engstrom,ailyas,benchen\}@mit.edu}.}\ ,
+    Benjamin Chen${}^{*\,1}$, \\
+    Axel Feldmann${}^{1}$\ ,
+    William Moses${}^{3}$,
+    Aleksander M\k{a}dry${}^{1}$ \\[.5em]
+    {\normalsize $^*$Equal contribution \qquad $^1$MIT,\ $^2$Stanford,\ $^3$UIUC}
+}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-1em}
+\begin{abstract}
+    A major challenge in training large-scale machine learning models 
+    is {\em configuring} the training process to maximize model performance,
+    i.e.,
+    finding the best training setup from a vast design space. 
+    In this work, we unlock a gradient-based approach to this problem.
+    We first introduce an algorithm for efficiently calculating 
+    \textit{metagradients}---gradients through model training---at scale.
+    We then introduce a ``smooth model training'' framework
+    that enables effective optimization using metagradients.
+    With metagradient descent (MGD), we greatly improve on existing
+    dataset selection methods, outperform accuracy-degrading
+    data poisoning attacks by an order of magnitude, 
+    and automatically find competitive learning rate schedules.
+\end{abstract}
+
+\section{Introduction}
+\input{sections/intro}
+
+\section{Scalably computing metagradients}
+\label{sec:computing}
+\input{sections/altalt_method.tex}
+
+\section{Designing metasmooth training routines} %
+\label{sec:localpred}
+\input{sections/localpred}
+
+\section{Applications}
+\label{sec:apps}
+\input{sections/applications.tex}
+
+\section{Discussion}
+\label{sec:discussion}
+\input{sections/discussion.tex}
+
+\section{Related work}
+\label{sec:related}
+\input{sections/ext_related.tex}
+
+\section{Conclusion}
+\label{sec:conclude}
+\input{sections/conclusion.tex}
+
+\section{Acknowledgements}
+Work supported in part by the NSF grant DMS-2134108 and Open Philanthropy,
+and in part by NSF Grant No. 2346519. 
+This work is also supported in part by the
+Alan Turing Institute, and the U.S. Department of Energy.
+The authors would like to thank 
+Alex Damian,
+Harshay Shah,
+Jesse Michel,
+Joel Flynn,
+Manolis Zampetakis,
+Noah Moroze,
+Piotr Indyk,
+Sam Hopkins,
+Sung Min (Sam) Park,
+and
+Sarah Cen
+for helpful references as well as 
+discussions and feedback on early versions of this work.
+
+
+\clearpage
+\printbibliography
+
+\appendix
+
+\clearpage
+\onecolumn
+
+
+\clearpage
+\section{Calculating metagradients with \replay{}}
+\input{sections/appmethods.tex}
+
+\clearpage
+\section{Smooth Model Training}
+\subsection{Omitted Figures}
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=.46\textwidth]{plots/smoothness_bn_after.pdf}
+  \includegraphics[width=.51\textwidth]{plots/smoothness_bn_before.pdf}
+  \caption{The factors affecting metasmoothness of training a ResNet-9 on the
+  CIFAR-10 dataset. See \cref{sec:localpred} for details.}
+  \label{fig:smoothness_cifar}
+\end{figure}
+
+\begin{figure}
+    \centering 
+\newcommand{\plotnumber}{1118}
+\newcommand{\zmin}{-1}
+\newcommand{\zmax}{11}
+\newcommand{\zdist}{3}
+\input{pgffigs/smoothness_3d/smoothness_3d.tex}
+
+\vspace{.3cm}
+\renewcommand{\plotnumber}{3349}
+\renewcommand{\zmin}{-1}
+\renewcommand{\zmax}{11}
+\renewcommand{\zdist}{3}
+\input{pgffigs/smoothness_3d/smoothness_3d.tex}
+
+\vspace{.3cm}
+\renewcommand{\plotnumber}{10600}
+\renewcommand{\zmin}{-1}
+\renewcommand{\zmax}{9}
+\renewcommand{\zdist}{3}
+\input{pgffigs/smoothness_3d/smoothness_3d.tex}
+
+\vspace{.3cm}
+\renewcommand{\plotnumber}{15578}
+\renewcommand{\zmin}{-1}
+\renewcommand{\zmax}{9}
+\renewcommand{\zdist}{3}
+\input{pgffigs/smoothness_3d/smoothness_3d.tex}
+\caption{Additional loss landscape visualizations.}
+\label{fig:more_landscapes}
+\end{figure}
+
+
+
+\clearpage
+\section{Metagradients for DataComp}
+\label{app:clip_details}
+\input{sections/app/clip_details.tex}
+
+\clearpage
+\section{Selecting IFT data}
+\label{app:less}
+\input{sections/app/ift_details.tex}
+
+\clearpage
+\section{Accuracy-degrading data poisoning}
+\label{app:poisoning}
+
+\subsection{Background on Gradient Cancelling attack}
+We briefly review the Gradient Cancelling attack \citep{lu2023exploring}
+used as a baseline in our experiments. We refer the reader to the original
+paper for details. Here we highlight the key ideas.
+
+At a high level: Gradient Cancelling (GC) explicitly aims at making a specific
+malicious parameter configuration reachable through retraining on the poisoned
+dataset. The attack operates in two phases:
+
+\begin{enumerate}
+  \item \textbf{Parameter Generation}: The attacker generates a target malicious model
+  parameter independently, often using a direct parameter corruption method like
+  Gradient-based Parameter Corruption (GradPC) \citep{lu2023exploring}. 
+  The end result of this phase is a target model parameter $\theta_p$
+  that achieves low accuracy on the test set, but is close to the original
+  parameter $\theta_0$ derived from training on the clean dataset.
+
+  \item \textbf{Poison Data Crafting}: In the second phase, GC finds values of the poison 
+  data that induce a near-zero gradient at the target parameter $\theta_p$.
+  This is achieved by solving a gradient cancellation optimization
+  problem: specifically, GC minimizes the total gradient of the loss function
+  (with respect to the model parameters) evaluated over the combined (clean and
+  poisoned) dataset, aiming to ensure that the gradient at the malicious parameter
+  $\theta_p$ approaches zero. 
+\end{enumerate}
+
+\subsection{Metasmooth hyperparameters}
+\begin{table}[h]
+  \caption{Hyperparameters used in the ResNet-9 \citep{jordan202494}
+    CIFAR-10 poisoning experiments.  The augmentations used are
+  normalization, random horizontal flip, and random translate (2 pixels)}
+  \centering
+  \input{tables/cifar_hparams.tex}
+\end{table}
+
+\clearpage
+\section{LR optimization}
+\label{app:lr_opt}
+
+\begin{table}[h]
+  \caption{The grid search was run over all 528 combinations of the
+  hyperparameter values below.}
+  \centering
+  \begin{tabular}{l c} \toprule
+    \textbf{Parameter} & \textbf{Values} \\
+    \midrule
+    Peak learning rate & [7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0, 10.5,
+    11.0, 11.5, 12.0] \\
+    Initial LR multiplier & [0.05, 0.15, 0.25, 0.35, 0.45, 0.55] \\
+    Final LR multiplier & [0.05, 0.15, 0.25, 0.35, 0.45, 0.55] \\
+    LR peak time & [0.25, 0.5, 0.75] \\
+    \bottomrule
+  \end{tabular}
+  \label{tab:lr_grid_hparams}
+\end{table}
+
+\begin{figure}[h]
+  \centering
+  \input{pgffigs/lr_sched_plot/sched_plot.tex}
+  \caption{Graphs of our learned LR schedules.}
+  \label{fig:lr_sched_plot}
+\end{figure}
+
+
+\end{document}

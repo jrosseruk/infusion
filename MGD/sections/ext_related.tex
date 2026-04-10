@@ -1,0 +1,101 @@
+We overview previous work on calculating and applying meta-gradients.
+
+\subsection{Calculating metagradients}
+Previous work estimates the metagradient for large-scale models via one of
+two broad families of methods: implicit differentiation and automatic (explicit)
+differentiation. Note that in previous literature, synonyms for metagradient
+include ``hyper-gradient'' and ``outer gradient.''
+
+\paragraph{Implicit differentiation.}
+One family of methods aims to {\em approximate} the metagradient.
+To illustrate the idea behind such approaches, suppose that the
+learning algorithm
+$\mathcal{A}$ returns a model state $\theta$ that minimizes a strongly
+convex loss function $\mathcal{L}(z, \theta)$. Here, the implicit function
+theorem tells us that
+\begin{align}
+  \label{eq:ift}
+  \nabla_z f(z) = \overbrace{
+    \left(\frac{d\phi}{d\theta}\bigg|_{\theta = \mathcal{A}(z)}\right)
+  }^{\substack{1 \times p \text{ gradient of output} \\ \text{wrt.
+  final params}}}
+  \underbrace{
+    \left(
+      \frac{\partial^2 \mathcal{L}(z, \theta)}{\partial
+      \theta^2}\bigg|_{\theta = \mathcal{A}(z)}
+    \right)^{-1}
+  }_{\substack{p \times p \text{ inverse Hessian of loss}
+  \\ \text{wrt. final params}}}
+  \overbrace{
+    \left(\frac{\partial^2 \mathcal{L}(z, \theta)}{\partial
+    \theta\,\partial z}\bigg|_{\theta = \mathcal{A}(z)}\right).
+  }^{
+    \substack{p \times n \text{ Jacobian of loss gradient}
+    \\ \text{wrt. metaparameters}}
+  }
+\end{align}
+The form of \eqref{eq:ift} yields efficient and accurate estimators for
+metagradients of models learned by minimizing a strongly convex
+loss~\citep{bertrand2020implicit,bertrand2022implicit,kolter2020deep,blondel2022efficient,scieur2022curse}.
+Such approaches can extend to estimate metagradients of large-scale, non-convex
+learning
+algorithms~\citep{bengio2000gradient,koh2017understanding,rajeswaran2019meta,finn2017model,lorraine2020optimizing,chen2020stabilizing,bae2022if},
+but lose any correctness guarantees. Indeed, applying this class of methods in
+large-scale settings is challenging as doing so requires (a) assuming conditions
+on the learning algorithm (e.g., Hessian invertibility, continuous
+differentiability) and (b) efficiently approximating the inverse Hessian (in
+practice, typically at the cost of estimate accuracy). Finally, implicit
+function-based approaches are fundamentally limited in that they can only
+differentiate with respect to metaparameters expressed in the loss function
+(e.g., these methods can differentiate with respect to the weight decay, but not
+learning rate).
+
+\paragraph{Automatic (explicit) differentiation.} Beyond implicit
+differentiation approaches, there is a long line of work on directly calculating
+metagradients with AD (see Section~\ref{sec:computing}). Previous work has used
+AD to estimate metagradients of learning algorithms ranging from those with
+convex objectives to small neural
+networks~\citep{hara2019data,maclaurin2015gradient,franceschi2017forward,micaelli2021gradient,zhang2021idarts,chandra2022gradient,scieur2022curse}.
+As detailed in Section~\ref{sec:computing}, the primary challenge with
+(reverse-mode) AD-based approaches to meta-differentiation is storing the
+intermediate products required for the backward pass. To circumvent this
+challenge, previous work either (a) only considers settings that are small
+enough that is possible to differentiate while requiring space that is linear in
+the number of iterations (i.e., 2 layer networks on MNIST), (b) uses
+forward-mode
+AD~\citep{franceschi2017forward,micaelli2021gradient,chandra2022gradient} (which
+  requires no extra storage at the cost of additional compute that
+  scales linearly
+with metaparameter dimension), (c) only \textit{approximates} the metagradient
+by calculating over only a few training
+steps~\citep{liu2018darts,chen2020stabilizing,finn2017model}, or uses (d) a
+reversible learning algorithm~\citep{maclaurin2015gradient}. The fourth category
+is a promising direction for reducing space requirements when computing
+large-scale metagradients, but current approaches require (a) representing model
+parameters in a fixed-precision format (which current large-scale learning
+algorithms do not support) in addition to restricting the algorithm to be
+reversible (e.g., SGD and standard GD do not qualify). A common thread is that
+algorithms computing metagradients with AD often suffer from numerical
+instability and overflow issues~\citep{micaelli2021gradient,scieur2022curse}. In
+relation to previous work on AD, \replay{} (Section \ref{sec:computing})
+can be seen as a strategy for choosing gradient
+checkpointing~\citep{chaitin1981register,briggs1992rematerialization,zweig2000exact,griewank2008evaluating,chen2016training}
+locations in the compute graph (an NP-complete task in
+general~\citep{naumann2008optimal}).
+
+\subsection{Applying metagradients}
+Previous work applies metagradients to optimize training setup, including
+distillation~\citep{maclaurin2015gradient,lorraine2020optimizing}, training data
+selection~\citep{hara2019data,engstrom2024dsdm},
+meta-learning~\citep{finn2017model,rajeswaran2019meta,hospedales2021meta},
+learning rate/weight decay
+selection~\citep{micaelli2021gradient,chandra2022gradient}, tuning data
+augmentation~\citep{lorraine2020optimizing}, and architecture
+search~\citep{maclaurin2015gradient,liu2018darts,zhang2021idarts}. Beyond
+optimizing metagradients, methods in data attribution apply metagradients to
+(Taylor) estimate the effect of dropping training data on model
+predictions~\citep{koh2017understanding,grosse2023studying,park2023trak}. To the
+Previous works either (a) calculate metagradients directly with AD (made
+feasible by working in a very small-scale learning setting) or (b) estimate the
+metagradient with an implicit function-based approach.
+

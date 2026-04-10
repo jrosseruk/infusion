@@ -1,0 +1,44 @@
+\begin{tabular}{llllllc}
+\toprule
+\textbf{Dataset}  &  \textbf{Task}  &  \textbf{Test size}  &  \textbf{Train size}  &  \textbf{Val size}  &  \textbf{Main metric}  &  \textbf{Target set} \\
+\midrule
+Caltech-101 \cite{fei2004learning}  &  Object recognition  & 6085 &  2754  &  306  &  mean per class  &  \checkmark \\
+CIFAR-10 \cite{krizhevsky2009learning}  &  Visual recognition  & 10000 &  45000  &  5000  &  accuracy  &  \checkmark \\
+CIFAR-100 \cite{krizhevsky2009learning}  &  Visual recognition  & 10000 &  45000  &  5000  &  accuracy  &  \checkmark \\
+CLEVR Counts \cite{johnson2017clevr,zhai2019large}  &  Counting  & 15000 &  65000  &  5000  &  accuracy  &  \checkmark \\
+CLEVR Distance \cite{johnson2017clevr,zhai2019large}  &  Distance prediction  & 15000 &  65000  &  5000  &  accuracy  &  \checkmark \\
+Country211 \cite{radford2021learning,thomee2016yfcc100m}  &  Geolocation  & 21100 &  37980  &  4220  &  accuracy  &  \checkmark \\
+DTD \cite{cimpoi2014describing}  &  Texture classification  & 1880 &  3384  &  376  &  accuracy  &  \checkmark \\
+EuroSAT \cite{helber2019eurosat,zhai2019large}  &  Satellite imagery recognition  & 5400 &  19440  &  2160  &  accuracy  &  \checkmark \\
+FGVC Aircraft \cite{maji2013fine}  &  Aircraft recognition  & 3333 &  6001  &  666  &  mean per class  &  \checkmark \\
+Food-101 \cite{bossard2014food}  &  Food recognition  & 25250 &  70750  &  5000  &  accuracy  &  \checkmark \\
+GTSRB \cite{stallkamp2011german}  &  Traffic sign recognition  & 12630 &  35289  &  3920  &  accuracy  &  \checkmark \\
+ImageNet 1k \cite{deng2009imagenet}  &  Visual recognition  & 50000 &  1276167  &  5000  &  accuracy  &  \checkmark \\
+ImageNet Sketch \cite{wang2019learning}  &  Visual recognition  & 50889 &  N/A  &  N/A  &  accuracy  &   \footnotemark[1] \\
+ImageNet V2 \cite{recht2019imagenet}  &  Visual recognition  & 10000 &  N/A  &  N/A  &  accuracy  &   \footnotemark[1] \\
+ImageNet-A \cite{hendrycks2019natural}  &  Visual recognition  & 7500 &  N/A  &  N/A  &  accuracy  &   \footnotemark[1] \\
+ImageNet-O \cite{hendrycks2019natural}  &  Visual recognition  & 2000 &  N/A  &  N/A  &  accuracy  &   \footnotemark[1] \\
+ImageNet-R \cite{hendrycks2020faces}  &  Visual recognition  & 30000 &  N/A  &  N/A  &  accuracy  &   \footnotemark[1] \\
+KITTI distance \cite{geiger2012ready,zhai2019large}  &  Distance prediction  & 711 &  N/A  &  N/A  &  accuracy  &   \footnotemark[2] \\
+MNIST \cite{lecun1998mnist}  &  Digit recognition  & 10000 &  55000  &  5000  &  accuracy  &  \checkmark \\
+ObjectNet \cite{barbu2019objectnet}  &  Visual recognition  & 18574 &  N/A  &  N/A  &  accuracy  &  \footnotemark[1] \\
+Oxford Flowers-102 \cite{nilsback2008automated}  &  Flower recognition  & 6149 &  1836  &  204  &  mean per class  &  \checkmark \\
+Oxford-IIIT Pet \cite{parkhi2012cats,zhai2019large}  &  Pet classification  & 3669 &  3312  &  368  &  mean per class  &  \checkmark \\
+Pascal VOC 2007 \cite{everingham2010pascal}  &  Object recognition  & 14976 &  14096  &  1566  &  accuracy  &  \checkmark \\
+PatchCamelyon \cite{veeling2018rotation,zhai2019large}  &  Metastatic tissue cls.  & 32768 &  289912  &  5000  &  accuracy  &  \checkmark \\
+Rendered SST2 \cite{zhai2019large}  &  Sentiment classification  & 1821 &  7013  &  779  &  accuracy  &  \checkmark \\
+RESISC45 \cite{cheng2017remote,zhai2019large}  &  Satellite imagery recognition  & 6300 &  22680  &  2520  &  accuracy  &  \checkmark \\
+Stanford Cars \cite{krause20133d}  &  Vehicle recognition  & 8041 &  7329  &  814  &  accuracy  &  \checkmark \\
+STL-10 \cite{coates2011analysis}  &  Visual recognition  & 8000 &  4500  &  500  &  accuracy  &  \checkmark \\
+SUN-397 \cite{xiao2010sun}  &  Scene recognition  & 108753 &  N/A  &  N/A  &  accuracy  &  \footnotemark[3] \\
+SVHN \cite{netzer2011reading,zhai2019large}  &  Digit recognition  & 26032 &  68257  &  5000  &  accuracy  &  \checkmark \\
+iWildCam \cite{beery2021iwildcam,koh2020wilds}  &  Animal recognition  & 42791 &  147084  &  5000  &  macro F1 score  &  \checkmark \\
+Camelyon17 \cite{bandi2018from,koh2020wilds}  &  Metastatic tissue cls.  & 85054 &  365900  &  5000  &  accuracy  &  \checkmark \\
+FMoW \cite{christie2018functional,koh2020wilds}  &  Satellite imagery recognition  & 22108 &  103261  &  5000  &  worst-region acc.  &  \checkmark \\
+Dollar Street \cite{rojas2022dollar}  &  Object recognition  & 3503 &  13842  &  1537  &  worst-income top-5 acc.  &  \checkmark \\
+GeoDE \cite{ramaswamy2024geode}  &  Object recognition  & 12438 &  44488  &  4943  &  worst-region acc.  &  \checkmark \\
+Flickr30k \cite{young2014from}  &  Image and text retrieval  & 31014 &  N/A  &  N/A  &  R@1  &  \footnotemark[4] \\
+MSCOCO \cite{lin2014microsoft}  &  Image and text retrieval  & 5000 &  N/A  &  N/A  &  R@1  &  \footnotemark[4] \\
+WinoGAViL \cite{bitton2022winogavil}  &  Commonsense association  & 3563 &  N/A  &  N/A  &  Jaccard score  &  \footnotemark[4] \\
+\bottomrule
+\end{tabular}

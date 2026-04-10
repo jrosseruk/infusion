@@ -1,0 +1,253 @@
+In this section we present \replay{}, an algorithm for computing metagradients
+of large-scale iterative ML algorithms. We first detail the setting, 
+then discuss existing approaches to computing metagradients, 
+and conclude by describing \replay{}.
+
+\subsection{What is a metagradient?}
+\label{subsec:meta_gradient}
+Training a machine learning model is a two-step process. 
+First, we decide on a {\em training setup}---we must pick,
+for example, a neural network architecture, 
+a training dataset, and an optimizer for training.
+Second, we apply the algorithm defined by this training setup to 
+train a model.
+
+Our overall goal in this paper is to optimize model behavior as a 
+function of the training setup 
+(or, as we call it, the {\em metaparameters}) using
+gradient-based methods. To this end, we define the following notation:
+\begin{itemize}
+	\item Let $\mathbf{z} \in \mathbb{R}^n$ be a vector of continuous 
+    metaparameters representing the aspects of the training setup we aim to optimize. 
+    For example, if we only want to adjust the learning rate and weight decay of
+    SGD then $n = 2$. We handle discrete metaparameters (e.g., choice of training data)
+    by finding a continuous relaxation (e.g., importance weights).
+	\item Let $\mathcal{A}$ be an {\em algorithm} mapping $\mathbf{z}$ to a trained
+    machine learning model; we assume all other
+	aspects of the training setup outside $\mathbf{z}$ are fixed and thus part of the
+    algorithm $\mathcal{A}$.  
+    \item Finally, let $\phi$ be an {\em output function} mapping a model
+    $\theta$ to a vector $\phi(\theta) \in \mathbb{R}$.
+    For example, $\phi(\theta)$ might represent the validation loss of the model $\theta$.
+    We require that $\phi$ be differentiable with respect to $\theta$, but otherwise 
+    make no assumptions on $\phi$.
+\end{itemize}
+With this notation in place, we define the 
+{\em training function} $f := \phi \circ \mathcal{A}$
+mapping the training setup $\mathbf{z}$ 
+{\em directly} to the output function $\phi$ evaluated on the corresponding model. 
+
+Finally, the {\em metagradient} is the gradient of the training function with 
+respect to the metaparameters, $\nabla_\mathbf{z} f(\mathbf{z})$. 
+Intuitively, the metagradient defines the ``direction of steepest ascent'' in
+metaparameter space.
+
+
+\paragraph{Our focus: iterative algorithms.}  
+To efficiently compute the metagradient, 
+we restrict our focus to cases where the algorithm $\mathcal{A}$ is 
+{\em iterative}, i.e., when it can be written in the form
+\begin{align}
+  \label{eq:iterative_algo}
+  \underbrace{\mathcal{A}(z) \coloneqq \st{T}}_{\mathclap{\text{model state after $T$ steps}}}, 
+  \quad \text{where} \quad \underbrace{\st{t+1} := h_t(\st{t}, \mathbf{z})}_{\mathclap{\text{optimizer step $t$}}}.
+\end{align}
+Here, $\st{t}$ is the optimizer state at step $t$
+(with $\st{0}$ being the initial state)
+and $h_t$ is the {\em update} mapping from state $t$ to state $t+1$.
+The form of~\eqref{eq:iterative_algo} captures most large-scale training algorithms. 
+For example, if the setup $\mathbf{z} \in \mathbb{R}^T$ is a \textit{per-step} learning rate, 
+and the algorithm $\mathcal{A}$ is 
+full batch gradient descent, then each update $h_t$ is
+$$
+  h_t(\st{t}, \mathbf{z}) \coloneqq \st{t} - z_t \nabla \ell(\st{t}),
+$$
+where $z_t$ is the learning rate at step $t$, 
+$\ell$ is the training loss, and 
+the state $\st{t}$ comprises the parameters at step~$t$.
+For more complex algorithms like
+Adam~\citep{kingma2015adam}, the state $\st{t}$ includes
+terms like gradient moments.
+
+\subsection{Warmup: Metagradients via autodifferentiation}
+A key primitive we leverage to calculate metagradients is
+{\em automatic differentiation} (AD)---a standard tool for taking 
+gradients through computer-defined functions.
+AD takes gradients 
+by decomposing functions into elementary operations 
+with known derivatives, then combining these derivatives using the chain rule.
+Concretely, AD operates in two passes: a ``forward pass,'' 
+which executes the function of interest and stores intermediate products 
+for {each} elementary operation; and a ``backward pass,''
+which calculates the gradient by propagating chains of
+partial derivatives using these stored products. For the purposes of this paper, 
+we will view AD as a black box that calculates the gradient of a many-to-one function 
+(i.e., any $f: \mathbb{R}^d \to \mathbb{R}$)
+at a given point using only a small constant factor more time than calculating the
+function itself (along with the space cost of storing the 
+necessary forward-pass products).
+
+What does this have to do with metagradients? 
+Well, seeing as how training itself is a computer-defined function, 
+AD is a natural tool for calculating the metagradient. The main challenge, 
+as we discuss in the sequel, is that AD-based approaches to calculating 
+the metagradient tend to be too resource-intensive for the large-scale machine
+learning algorithms we consider.
+In the remainder of this section we build up background before finally
+describing \replay{}, our algorithm for scalably computing (exact)
+metagradients.
+
+\paragraph{Approach \#1: Direct AD.} The direct approach to calculating
+metagradients exploits the fact that nearly any learning algorithm
+is itself a sequence
+of differentiable computer-defined operations---meaning the training function $f$
+is \emph{also differentiable}.
+
+However, operationalizing this observation to compute metagradients
+turns out to be challenging.
+The reason is that AD stores intermediate
+products for {\em each} operation.
+The amount of data stored thus scales with the number of operations 
+in the function of interest. In the case of our training function $f$,
+this number encompasses {\em all} the operations used to train a machine 
+learning model.
+As a result, even in a toy scenario like MNIST training, computing metagradients
+with na\"ive AD would require storing terabytes of data. 
+
+\paragraph{Approach \#2: Exploiting structure with step-wise AD.} 
+A more efficient method for calculating the metagradient,
+{\em step-wise AD},
+leverages the structure of iterative learning algorithms~\citep{werbos1990backpropagation,maclaurin2015gradient,franceschi2017forward}.
+Recall from \eqref{eq:iterative_algo} that such algorithms take the form
+\[
+	{\mathcal{A}(\mathbf{z}) \coloneqq \st{T}}, \quad \text{where} \quad {\st{t+1} := h_t(\st{t}, \mathbf{z})}.
+\]
+Algebraic manipulation 
+(in particular, using the chain rule, 
+the law of the total derivative,
+and the identity $\st{t} = h_{t-1}(\st{t-1}, \mathbf{z})$)
+allows us to write the metagradient over an iterative algorithm as
+\begin{equation}
+	\pfrac{f(\mathbf{z})}{\mathbf{z}} =
+	\pfrac{\phi(\mathcal{A}(\mathbf{z}))}{\mathbf{z}} 
+	= \mathlarger{\sum}_{t=1}^{T}\ 
+  \underbrace{\overbrace{\pfrac{\phi(\st{T})}{\st{t}}}^{A_t} \cdot 
+  \pfrac{h_{t-1}(\st{t-1}, \mathbf{z})}{\mathbf{z}}}_{B_t} \label{eq:total_deriv}, %
+\end{equation}
+where we have introduced the notation $A_t$ and $B_t$ for notational convenience.
+Step-wise AD computes the metagradient by calculating each term in the sum of
+\eqref{eq:total_deriv} one at a time. 
+For each term, the main challenge lies in computing $A_t$, since given $A_t$ 
+we can straightforwardly compute $B_t$ (the entire term)
+by differentiating through a single model update, i.e.,
+\begin{align*}
+  B_t := A_t \cdot \pfrac{h_{t-1}(\st{t-1}, \mathbf{z})}{\mathbf{z}}
+  =  \pfrac{(A_t \cdot h_{t-1}(\st{t-1}, \mathbf{z}))}{\mathbf{z}},
+\end{align*}
+which is just a single call to our assumed ``AD oracle'' on the function 
+$\mathbf{z} \mapsto A_t \cdot h_{t-1}(\st{t-1}, \mathbf{z})$.
+Computing the $A_t$ terms is less straightforward as we need to relate $s_t$ and $s_T$;
+to do so, we exploit the recurrence
+\begin{equation}
+  A_t := \pfrac{\phi(\st{T})}{\st{t}} 
+  = \pfrac{\phi(\st{T})}{\st{t+1}} \cdot \pfrac{{h_t(\st{t}, \mathbf{z})}}{\st{t}}
+  = \pfrac{(A_{t+1} \cdot h_t(\st{t}, \mathbf{z}))}{\st{t}},\label{eq:grad_recurrence}
+\end{equation}
+making $A_t$ straightforward to compute (again, a single ``AD oracle'' call) given $A_{t+1}$. 
+Step-wise AD exploits this fact to successively
+calculate the gradient with respect to each state, from state $T$ down to state $0$.
+
+Bringing these ingredients together, the algorithm executes as follows. As a
+preprocessing step, it trains the model and stores all intermediate states
+$\st{0},\ldots,\st{T}$.
+Then, the algorithm calculates and sums the terms in
+\eqref{eq:total_deriv}. It first computes $A_T := \nicefrac{\partial
+\phi(\st{T})}{\st{T}}$, the gradient of the output function $\phi$ with respect
+to the final state. Then, the algorithm steps through $\st{T-1},\ldots,\st{0}$ in
+reverse order, calculating (a) the gradient with respect to each
+state $A_t$ (via \eqref{eq:grad_recurrence}) and (b) the gradient with respect to
+$\mathbf{z}$ at that step $B_t$ (via \eqref{eq:total_deriv}, using the
+previously calculated gradient with respect to that state). AD calculates
+both quantities---each requires differentiating over only one train step.
+Finally, the algorithm returns the final metagradient as the sum of the terms.
+
+Despite improving storage overhead compared to ``direct AD'', step-wise
+AD is still too space-intensive at scale. After all,
+this algorithm saves {\em every} optimizer state. 
+
+\begin{figure}
+	\onecolumn
+    \centering
+    \input{figs/tree.tex}
+    \caption{The lazy $k$-ary tree structure for
+    traversing optimizer states in reverse order, with $k=2$. Recall that $n$ is
+    the number of states (parameterized such that $n=T+1$). Each node represents
+    the correspondingly numbered state. We give an example of the traversal
+    using the \color{blue}{blue arrows }\color{black} in the figure, which
+    denote the traversal path up to state $\smash{s_{\frac{3n}{4} + 1}}$. The gray
+    cylinders \hspace{1pt}\tikzinlinecylinder{}\hspace{1pt} indicate the states
+    that are stored when the traversal is at state $\smash{s_{\frac{3n}{4} + 1}}$; the
+    other states are not stored at this point in the traversal. Traversing this
+    structure requires storing $\mathcal{O}(\log(n))$ state and computing
+    $\smash{\mathcal{O}(n\log(n))}$ optimizer steps---compared to $n$ for simply
+    training. }
+    \label{fig:efficient_data_structure}
+\end{figure}
+
+\subsection{\replay{}} 
+\replay{} is our algorithm for efficiently and exactly computing metagradients.
+It uses $\mathcal{O}(k\log_k(T))$ space and requires running the learning algorithm $\mathcal{A}$
+a total of $1 + \log_k(T)$ times, 
+with $k$ a user-chosen constant. The main idea is to make the space-intensive subroutine of
+step-wise AD---a reverse-order traversal of the optimizer states at each
+step---much more efficient. After all, step-wise AD stores \textit{all} the
+states to reverse traverse them. \replay{} modifies step-wise AD to traverse
+states in less space by exploiting a simple observation: when training is
+deterministic, one can \textit{reinstantiate} an optimizer state $\st{t}$ by
+``replaying'' training from a fixed point $t' < t$---at the compute cost of $t -
+t'$ training steps. For example, one simple scheme saves every other state, then
+``replays'' the remaining states when (reverse) traversing; this routine
+stores $T/2$ states but computes an extra $T/2$ model updates compared
+to storing \textit{all} the states.
+
+\replay{} performs a reverse-order traversal the optimizer states while
+balancing  the compute cost of ``replaying'' training with the storage cost of
+saving states. We use a combination of deterministic training 
+(fixing data ordering, data augmentation, and any other randomness in 
+the training process) and an efficient data structure (similar to a segment
+tree; see Figure \ref{fig:efficient_data_structure}) 
+to reverse-order traverse the optimizer states with
+$\mathcal{O}(k\log_k(T))$ space and an additional $T\log_k(T)$
+model steps. 
+
+Specifically, \replay{} recursively saves and replays training states. The
+algorithm splits the training trajectory into $k$ segments, performs the full
+training routine while saving only the start of each segment, then recurses
+into each segment (in reverse) to retrieve the states in reverse-order. The
+recursion depth bottoms out at $\log_k(T)$, at which point the algorithm has
+$k$ consecutive optimizer states in memory; the algorithm then backpropagates
+along this segment, before deleting all these states from memory and then
+reinstantiating the next $k$-length segment of optimizer states. 
+We provide additional details on the algorithm in Appendix~\ref{app:replay}.
+\replay{} unlocks computing large-scale metagradients by requiring only
+logarithmic storage and additional compute time. 
+
+
+
+\begin{remark}[Connection to rematerialization]
+In a broad sense, both \replay{} and step-wise AD above can be viewed as
+special cases of a classical approach in AD (and computing broadly) known as
+\textit{rematerialization}~\citep{chaitin1981register,briggs1992rematerialization,zweig2000exact,griewank2008evaluating,chen2016training}.
+To our knowledge, however, \replay{} is the first application of this 
+particular rematerialization technique to the problem of computing metagradients through 
+model training.
+\end{remark}
+
+\begin{remark}[Reversible learning]
+  An alternative approach to calculating metagradients that does not save any 
+  state is \underline{\smash{reversible}} learning~\citep{maclaurin2015gradient},
+  for which one can ``invert'' previous training states from future ones.
+  We focus here on general (non-reversible) learning algorithms for two reasons: first, 
+  even simple algorithms such as SGD without momentum are non-reversible; second, 
+  reversibility in practice introduces numerical precision issues.
+\end{remark}

@@ -1,0 +1,76 @@
+\begin{tikzpicture}
+    \centering
+    \pgfplotsset{
+        view={45}{30},
+        mesh/ordering=y varies,
+        table/col sep=comma,
+        table/header=true,
+    }
+
+    \pgfplotsset{
+        colormap={crest}{
+            rgb=(0.647,0.803,0.566) %
+            rgb=(0.500,0.737,0.568) %
+            rgb=(0.357,0.651,0.565) %
+            rgb=(0.247,0.586,0.562) %
+            rgb=(0.154,0.471,0.548) %
+            rgb=(0.113,0.355,0.518) %
+            rgb=(0.132,0.289,0.486) %
+            rgb=(0.173,0.190,0.445) %
+        }
+    }
+
+    \pgfplotstableread[col sep=comma,header=true]{pgffigs/smoothness_3d/data/nonsmooth_3dplot_\plotnumber.csv}\nonsmoothdata
+    \pgfplotstableread[col sep=comma,header=true]{pgffigs/smoothness_3d/data/smooth_3dplot_\plotnumber.csv}\smoothdata
+
+    \begin{groupplot}[
+        group style={
+            group size=2 by 1,
+            horizontal sep=0.1\textwidth,
+            vertical sep=0.1\textwidth,
+        },
+        width=0.45\textwidth,
+        height=0.35\textwidth,
+        colormap name=viridis,
+        xlabel=$h_1$,
+        ylabel=$h_2$,
+        zlabel=$f(h_1\mathbf{v}_1 + h_2\mathbf{v}_2)$,
+        xlabel shift=-10pt,
+        ylabel shift=-10pt,
+        zlabel shift=-5pt,
+        title style={yshift=-5pt},
+        scaled ticks=true,
+        xmin=0.001,
+        ymin=0.001,
+        zmin=\zmin,
+        zmax=\zmax,
+        grid=both,
+        grid style={line width=0.5pt, draw=gray!30, dashed},
+        xtick distance=0.25,
+        ytick distance=0.25,
+        ztick distance=\zdist,
+        extra x ticks={0},
+        extra y ticks={0},
+        extra z ticks={0},
+        extra tick style={grid=none, tick style={draw=none}, major tick length=0pt},
+        extra x tick labels={},
+        extra y tick labels={},
+        extra z tick labels={}
+    ]
+        \nextgroupplot[title={Non-smooth (Example \#\plotnumber)}]
+            \addplot3[
+                surf,
+                shader=interp,
+                mesh/rows=21,
+                mesh/cols=21
+            ] table[x=X, y=Y, z=Z] {\nonsmoothdata};
+            
+        \nextgroupplot[title={Smooth (Example \#\plotnumber)}]
+            \addplot3[
+                surf,
+                shader=interp,
+                mesh/rows=21,
+                mesh/cols=21
+            ] table[x=X, y=Y, z=Z] {\smoothdata};
+    \end{groupplot}
+\end{tikzpicture}

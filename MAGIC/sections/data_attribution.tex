@@ -1,0 +1,161 @@
+\section{Data attribution: Notation and problem setup}
+\label{sec:problem_setup}
+The high-level goal of data attribution is to connect the choice of training
+data to model behavior. For example, one may want to use data
+attribution to find the training datapoints that cause a given output, or to
+surface data that harms accuracy. In this section, we formalize this
+goal with the {\em predictive data attribution} (or
+\textit{datamodeling}~\citep{ilyas2022datamodels}) framework, which phrases data
+attribution as the task of predicting how model behavior changes as a function
+of the training data.
+
+Specifically, we view the machine learning pipeline as a three-step process
+wherein we
+(a) choose training data;
+(b) apply a learning algorithm to that data, yielding a trained model;
+and then (c) evaluate the trained model.
+The goal of predictive data attribution is to construct a function
+that {\em directly} predicts the output of step (c) from the choice of
+training data in step (a).
+To make this more precise (and borrowing from~\citep{ilyas2022datamodels}),
+we define the following notation:
+\begin{itemize}
+  \item Let $\trainset = \{z_i\}_{i=1}^n$ be a pool of $n$ possible training
+    examples. We represent {\em datasets} as vectors $\wvec \in \mathbb{R}^n$
+    where each entry $w_i$ is an importance weight for the $i$-th example in
+    $\trainset$. The importance weight $w_i$ controls the scaling of the loss of
+    sample $i$; for example, $w_i=0$ implies that we do not include the $i$-th
+    example in the training set, while $w_i > 0$ implies that we do include the
+    example (and multiply its loss by $w_i$ during training).
+  \item Let $\alg{}: \mathbb{R}^n \to \Theta$ be a {\em learning algorithm}
+    mapping datasets---parameterized by importance weight vectors
+    $\wvec$---to trained model
+    parameters.
+    We assume that all aspects of the training setup beyond the
+    training data
+    are captured by $\alg{}$ (e.g., learning rate, weight decay, etc.).
+  \item Let $\phi: \Theta \to \mathbb{R}$ be a {\em measurement
+    function} mapping a machine learning model $\theta$ to a scalar measurement
+    $\phi(\theta) \in \mathbb{R}$. For example, $\phi(\theta)$ might represent
+    the loss of the classifier with parameters $\theta$ on a given test sample.
+  \item Let $f: \mathbb{R}^n \to \mathbb{R}$ be the {\em model output function}
+    $f$ mapping datasets directly to model outputs, i.e., a composition
+    of $\alg{}$ and $\phi$.
+\end{itemize}
+To illustrate this notation, we instantiate it in the context of linear
+regression. In this case, the training pool is a set of $n$ input-label pairs
+$\trainset = \{(\mathbf{x}_i \in \mathbb{R}^d, y_i \in \mathbb{R}) \}_{i=1}^n$;
+the learning algorithm $\alg{}$ fits a linear model minimizing the average
+squared loss {\em weighted} by a given $\wvec \in \mathbb{R}^n$, and the
+measurement function $\phi$ evaluates a model's loss on a specific test point
+$\mathbf{x}_{test}$, i.e.,
+$$\alg{}(\wvec) := \arg\min_\theta \sum_i w_i \cdot (\theta^\top \mathbf{x}_i -
+y_i)^2 \qquad \text{and} \qquad \phi(\theta) := (\theta^\top \mathbf{x}_{test} -
+y_{test})^2.$$ Then, $f(\wvec) := \phi \circ \alg{}$ maps a data
+weighting $\wvec$
+to the resulting model's loss on $\mathbf{x}_{test}$.
+Now, in this linear regression example, $f(\wvec)$ is easy to directly compute
+(in fact, it has a closed form in terms of $\wvec$),
+but this is seldom the case.
+In general, evaluating $f(\wvec)$ requires re-training a model on the weighting
+vector $\wvec$---which can make be very expensive for large-scale models.
+This motivates our (informal) definition of predictive data attribution,
+given in Definition~\ref{def:predictive_data_attribution} below.
+
+\begin{boxdef}[Predictive data attribution]
+  \label{def:predictive_data_attribution}
+  \vspace*{-0.5em}
+  A \underline{\smash{predictive data attribution}} is an
+  \underline{\smash{explicit}} function
+  $\hat{f}$ that aims to approximate a model output function $f$.
+  In other words, for a given data weight vector
+  $\wvec$, $\hat{f}(\wvec)$ should be fast to compute
+  while also accurately predicting $f$, i.e., satisfying
+  $\hat{f}(\wvec) \approx f(\wvec)$.
+  \vspace*{0.4em}
+\end{boxdef}
+
+\subsection{Single-model predictive data attribution}
+\label{sec:single_model_data_attribution}
+The main goal of this work is to operationalize predictive data attribution
+for large-scale (deep) learning algorithms.
+A challenge, however, is that these learning algorithms are {\em
+non-deterministic},
+meaning that the same training dataset can map to \textit{different} model
+parameters depending on randomness (e.g., random parameter
+initialization or data order shuffling) \citep{zhuang2022randomness,jordan2024variance}.
+
+As a result, when learning algorithms are non-deterministic, we cannot perfectly
+predict how choice of data will change model behavior; we can only predict how
+it will change the {\em expected} behavior. More precisely, data attribution
+methods predict how (on average, over training randomness) a {\em new} model
+would behave if retrained from scratch, {\em and not how a specific trained
+model would behave if we had changed the training dataset}.
+
+To make this more precise, let $\wvec$ be a weighting vector defining a 
+dataset, and let $\hat{f}$ be a data attribution method.
+Now, consider the expected difference between our estimator $\hat{f}(\wvec)$,
+and the true model output $f(\wvec)$, averaged over training randomness. 
+This error decomposes into two~terms:
+\begin{equation}
+  \label{eq:bias_variance}
+  \mathbb{E}\left[(\hat{f}(\wvec) - f(\wvec))^2\right] =
+  \underbrace{\left(\hat{f}(\wvec) -
+  \mathbb{E}[f(\wvec)]\right)^2}_{\text{Reducible Error}} +
+  \underbrace{\mathbb{E}\left[\left(f(\wvec) -
+  \mathbb{E}[f(\wvec)]\right)^2\right]}_{\text{Irreducible Error}}
+\end{equation}
+Looking at each term in \eqref{eq:bias_variance}: the \textit{reducible error}
+(or bias) is minimal when $\hat{f}(\wvec) = \mathbb{E}[f(\wvec)]$,
+while the irreducible error (or variance) depends only on $f$,
+and is constant regardless of the data attribution method $\hat{f}$.
+Indeed, the irreducible error
+arises from inherent randomness in the model training process, and
+thus is fundamentally {\em unattributable} to data. Accordingly, current data
+attribution methods can answer questions about algorithms (e.g., {\em ``what
+    would happen if we trained a new model on a dataset not containing
+    the training
+example $x$?''})---but not about individual models.
+
+However, in practice we often want to answer questions about
+\textit{individual} models,
+not a class of learning algorithms. For example, we might ask a question
+like {\em ``what was the effect of training example $x$ on this specific
+model?''} 
+This question motivates us to define and consider a problem 
+that we call {\em single-model data attribution}.
+
+
+
+
+\medskip
+\noindent\textbf{Single-model predictive data attribution.}
+To understand how choice of data changes \textit{individual} trained models, we
+propose a new setting called {\em single-model data attribution}.
+Here, we enforce that
+the learning algorithm $\alg{}$ and the measurement function $\phi$ are
+deterministic (i.e., by fixing data ordering,
+parameter initialization, etc.).
+This determinism ensures that for any weighting $\wvec$, the model output
+$\phi(\alg{}(\wvec))$ is deterministic
+(i.e., so that the expected model output that datamodels predict is constant,
+and $\text{Var}\left[{\phi(\alg{}(\wvec))}\right] = 0$). In this new setting,
+model outputs vary only from changes in training data weights, allowing for
+predictive data attribution methods to exactly attribute changes to
+data weights. In the language of \eqref{eq:bias_variance}, the irreducible error
+is zero.
+
+\begin{remark}[Single-model versus standard predictive data attribution]
+  Our motivation for the single-model setting is that in many cases
+  we often want to understand the effect of training data on a
+  specific model, rather than a class of models.
+  Still, even in cases where we \underline{do} care more about 
+  the average behavior of a learning algorithm (and not  
+  a specific trained model), a near-perfect single-model data attribution
+  method can be used to construct a near-perfect standard data
+  attribution method by averaging over different learning algorithm seeds.
+  We discuss this connection further in Section \ref{sec:discussion}.
+\end{remark}
+
+
+

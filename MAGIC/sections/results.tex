@@ -1,0 +1,161 @@
+\section{Evaluation}
+\label{sec:results}
+In this section we evaluate \method{} across a number of domains.
+In particular, we compare \method{} with two of the most successful
+recent data attribution techniques: TRAK \citep{park2023trak} and
+EK-FAC \citep{grosse2023studying}; see Appendix~\ref{app:baselines} for the
+specifics of these baselines.
+Across the board, we find that \method{} provides near-perfect
+predictions of how model outputs change when we drop data
+(at random) from the training set.
+
+\paragraph{Evaluation metric.}
+Recall (from Section~\ref{sec:problem_setup}) that the goal of predictive
+data attribution is to predict how a model's output changes as a function of
+the model's training data. In order to evaluate the quality of these
+predictions,
+we adopt the {\em linear datamodeling score} (LDS)
+\citep{ilyas2022datamodels,park2023trak}
+as our evaluation metric. To compute LDS for a given model output function
+$f$ and corresponding data attribution method $\hat{f}$, we follow
+the following steps:
+\begin{enumerate}
+  \item Sample $n$ fixed-sized subsets of the training set,
+    which we represent as binary data weights
+    $\wvec^{(1)}, \ldots, \wvec^{(n)} \in \{0,1\}^N$,
+    where $N$ is the number of total training samples.
+    Given a drop-out fraction $p \in [0,1]$, we sample each data weight
+    vector $\wvec^{(i)}$ by dropping $pN$ random training samples
+    from the training set.
+
+  \item For each data weight vector $\wvec_i$:
+    \begin{enumerate}
+      \item Compute the {\em true} model output function
+        $f(\wvec_i)$ by training a model on the training set with
+        data weights $\wvec_i$
+        and evaluating the measurement of interest on the trained model.
+      \item Compute the {\em predicted} model output function
+        $\hat{f}(\wvec_i)$ via the data attribution method $\hat{f}$.
+    \end{enumerate}
+
+  \item We compute the LDS as the Spearman correlation between the predicted
+    output and the true output over all $n$ data weight vectors, i.e.,
+    \begin{align}
+      \label{eq:lds}
+      \text{LDS} =  \rho\!\left(\left[\hat{f}(\wvec_i)\right]_{i=1}^n,
+      \left[\phantom{\hat{f}}\!\!\! f(\wvec_i)\right]_{i=1}^n\right).
+    \end{align}
+\end{enumerate}
+
+\paragraph{Settings.}
+We study scenarios spanning computer vision and
+language modeling.
+Each scenario comprises a training dataset $S$,
+a learning algorithm $\mathcal{A}$,
+and a test set $S_T$. Accordingly, each scenario defines $|S_T|$ data
+attribution
+tasks, where task $i$ is to predict the loss of $\mathcal{A}$ on the
+$i$-th sample
+in $S_T$. For each data attribution method we consider,
+we compute the {\em average} LDS \eqref{eq:lds} across tasks.
+\begin{itemize}
+  \item {\bf ResNet CIFAR-10 training}: We train ResNet-9~\citep{jordan202494}
+    models on subsets of the CIFAR-10 train set~\citep{krizhevsky2009learning},
+    and aim to predict cross-entropy loss on CIFAR-10 test samples.
+  \item {\bf GPT-2 Wikitext fine-tuning}: We fine-tune 125M
+    GPT-2 models~\citep{radford2019language} on subsets of
+    Wikitext~\citep{foundation2022english}, and aim to predict
+    (language modeling) loss on 50 different test samples.
+  \item {\bf Gemma-2B instruction-tuning}: We fine-tune Gemma-2B
+    \citep{team2024gemma} with LoRA \citep{hu2021lora} on 
+    subsets of three combined instruction tuning datasets
+    (Flan V2, DOLLY, OpenAssistant-1
+    \citep{longpre2023flan,conover2023free,kopf2024openassistant}), aiming to predict 
+    loss on MMLU \citep{hendrycks2021measuring} samples.
+\end{itemize}
+See Appendix~\ref{app:expdetails} for the exact details of each scenario.
+
+
+\begin{figure}[bp!]
+  \centering
+  \input{plots/lds_all.tex}
+  \caption{Linear datamodeling score (LDS) vs. drop fraction across settings for
+    \method{} and baselines. The estimates of \method{} consistently correlate
+    with the true model outputs (LDS: near $1.0$ for small enough drop fraction)
+    while baselines often do not (LDS: below $0.4$). LDS decreases with
+    increasing drop fraction for \method{} (as the Taylor estimate moves further
+  from the center).}
+  \label{fig:cifar_lds}
+\end{figure}
+
+\subsection{Results}
+
+As shown in Figure~\ref{fig:cifar_lds}, \method{} attains near-perfect
+LDS across settings and drop-out fractions,
+although our predictions slightly degrade as we drop more data.
+Existing baselines are noisy in comparison; these methods' predictions only
+weakly correlate with the ground truth model losses.
+
+In Figure~\ref{fig:scatters}, we randomly select a test example 
+from each scenario, and plot predictions of test loss against true test loss for
+each data attribution method. \method{} almost exactly predicts the true test
+loss, even in absolute terms. On the other hand, baselines barely correlate
+with the true predictions, and are mis-scaled in absolute terms
+(TRAK and EKFAC predictions are not of the right order of magnitude,
+so we rescale them to visualize them on the same plot).
+
+\medskip
+\noindent \textbf{Optimality of \method{}.} We observe that the performance of
+\method{} degrades with the fraction of samples dropped. While \method{} has
+near perfect LDS when predicting the effect of removing a small fraction of the
+training data (i.e., 1\%), the LDS degrades at larger drop-out fractions
+(i.e., 20\%). Our near-perfect performance when dropping only a few points
+indicates that our method is in some sense optimal among linear predictors: 
+we can perfectly predict in a small ball around ``not dropping out any points,'' 
+but curvature (in training data weight space) 
+causes the linear approximation to degrade
+further away from training on all the data.
+
+\begin{figure}[ht!]
+  \newcommand{\dataset}{cifar}
+  \newcommand{\exampleid}{0}
+  \newcommand{\scatteropacity}{0.5}
+  \newcommand{\setting}{ResNet-9 on CIFAR-10}
+  \newcommand{\fracone}{1}
+  \newcommand{\frachtwo}{5}
+  \newcommand{\datacsvscatterone}{plots/scatter/scatter_results_cifar/ind_0_dropfrac_0.01.csv}
+  \newcommand{\datacsvscattertwo}{plots/scatter/scatter_results_cifar/ind_0_dropfrac_0.05.csv}
+  \input{plots/scatter/scatter.tex}
+
+  \renewcommand{\dataset}{gemma}
+  \renewcommand{\exampleid}{17}
+  \renewcommand{\scatteropacity}{0.5}
+  \renewcommand{\setting}{Gemma-2B on IFT data}
+  \newcommand{\hidelegend}{true}
+  \renewcommand{\fracone}{1}
+  \renewcommand{\frachtwo}{5}
+  \renewcommand{\datacsvscatterone}{plots/scatter/scatter_results_gemma/example_17_dropfrac_01.csv}
+  \renewcommand{\datacsvscattertwo}{plots/scatter/scatter_results_gemma/example_17_dropfrac_05.csv}
+  \input{plots/scatter/scatter.tex}
+
+  \renewcommand{\dataset}{wikitext}
+  \renewcommand{\exampleid}{32}
+  \renewcommand{\scatteropacity}{0.5}
+  \renewcommand{\setting}{GPT-2 on WikiText}
+  \renewcommand{\hidelegend}{true}
+  \renewcommand{\fracone}{1}
+  \renewcommand{\frachtwo}{5}
+  \renewcommand{\datacsvscatterone}{plots/scatter/scatter_results_wikitext/example_32_dropfrac_0.01.csv}
+  \renewcommand{\datacsvscattertwo}{plots/scatter/scatter_results_wikitext/example_32_dropfrac_0.05.csv}
+  \input{plots/scatter/scatter.tex}
+
+  \caption{Results of \method{} and baselines on randomly chosen, individual
+    samples from the three settings we consider: CIFAR-10, Gemma-2B, and GPT-2.
+    We evaluate by predicting model output after dropping a random 1\%/5\% of
+    the data (cf. \eqref{eq:lds}) and plotting the results against the true
+    model output for that drop set. \method{} estimates consistently highly
+    correlate with the true output across settings (for small enough training
+  data drop fractions).}
+  \label{fig:scatters}
+\end{figure}
+

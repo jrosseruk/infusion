@@ -1,0 +1,235 @@
+\pgfplotsset{colormap/Set1}
+
+\definecolor{Set1Red}{RGB}{74,124,182}
+\definecolor{Set1Blue}{RGB}{142,82,159}
+\definecolor{Set1Green}{RGB}{239,134,50}
+
+\usetikzlibrary{calc}
+
+%
+\def\datacsvcorrelations{plots/scatter/correlations_\dataset/dropfrac_\fracone/example_\exampleid.csv}
+
+%
+\pgfplotstableread[col sep=comma]{\datacsvcorrelations}\datatable
+
+%
+\pgfplotstablegetelem{0}{corr}\of\datatable
+\pgfmathprintnumberto[fixed, precision=2]{\pgfplotsretval}{\trakcorrone}
+
+\pgfplotstablegetelem{1}{corr}\of\datatable
+\pgfmathprintnumberto[fixed, precision=2]{\pgfplotsretval}{\ekfaccorrone}
+
+\pgfplotstablegetelem{2}{corr}\of\datatable
+\pgfmathprintnumberto[fixed, precision=2]{\pgfplotsretval}{\methodcorrone}
+
+%
+\def\dataset{wikitext}
+\def\datacsvcorrelations{plots/scatter/correlations_\dataset/dropfrac_\frachtwo/example_\exampleid.csv}
+
+%
+\pgfplotstableread[col sep=comma]{\datacsvcorrelations}\datatable
+
+%
+\pgfplotstablegetelem{0}{corr}\of\datatable
+\pgfmathprintnumberto[fixed, precision=2]{\pgfplotsretval}{\trakcorrhtwo}
+
+\pgfplotstablegetelem{1}{corr}\of\datatable
+\pgfmathprintnumberto[fixed, precision=2]{\pgfplotsretval}{\ekfaccorrhtwo}
+
+\pgfplotstablegetelem{2}{corr}\of\datatable
+\pgfmathprintnumberto[fixed, precision=2]{\pgfplotsretval}{\methodcorrhtwo}
+
+%
+
+
+%
+\ifdefined\hidelegend
+    \pgfplotsset{conditional legend style/.style={legend style={draw=none, fill=none}}}
+\else
+    \pgfplotsset{conditional legend style/.style={
+        legend style={
+            at={(0.12,1.22)}, %
+            anchor=south, %
+            legend columns=4, %
+            /tikz/every even column/.append style={column sep=0.5cm}, %
+            inner xsep=24pt, %
+            inner ysep=2.5pt,  %
+            legend image post style={scale=2.5} %
+        }
+    }}
+\fi
+
+\begin{tikzpicture}
+    %
+    \node (settingbox) [minimum width=0.33\textwidth, 
+                        minimum height=0.2\textwidth, 
+                        anchor=north west, 
+                        align=center] {\setting \\[.5em]
+                        Correlation {\bf on Test Example \#$\mathbf{\exampleid}$} \\[.5em]
+                        
+        \begin{tabular}{ccc}
+            \toprule
+            Method & $\rho\ (\fracone\%)$ & $\rho\ (\frachtwo\%)$ \\
+            \midrule
+            EK-FAC & $\ekfaccorrone$ & $\ekfaccorrhtwo$ \\
+            TRAK & $\trakcorrone$ & $\trakcorrhtwo$ \\
+            \method & $\mathbf{\methodcorrone}$ & $\mathbf{\methodcorrhtwo}$ \\
+            \bottomrule
+        \end{tabular}
+    };
+
+    %
+    \begin{axis}[
+        name=plot1,
+        at={($(settingbox.east)+(2cm,0)$)}, %
+        anchor=west, %
+        width=0.33\textwidth,
+        height=0.33\textwidth,
+        xlabel={Predicted Loss},
+        ylabel={True Loss},
+        title={Drop \fracone\%},
+        title style={yshift=-.15cm},
+        %
+        conditional legend style,
+        grid=both,
+        grid style={line width=.1pt, draw=gray!10},
+        major grid style={line width=.2pt,draw=gray!50},
+        scaled y ticks=true,
+        yticklabel style={/pgf/number format/.cd, fixed, precision=3},
+        xticklabel style={/pgf/number format/.cd, fixed, precision=3},
+        after end axis/.code={
+            %
+            \pgfmathsetmacro{\myxmin}{\pgfkeysvalueof{/pgfplots/xmin}}
+            \pgfmathsetmacro{\myxmax}{\pgfkeysvalueof{/pgfplots/xmax}}
+            \pgfmathsetmacro{\myymin}{\pgfkeysvalueof{/pgfplots/ymin}}
+            \pgfmathsetmacro{\myymax}{\pgfkeysvalueof{/pgfplots/ymax}}
+            %
+            \pgfmathsetmacro{\linestart}{max(\myxmin, \myymin)}
+            \pgfmathsetmacro{\lineend}{min(\myxmax, \myymax)}
+            %
+            \draw[dashed, gray, very thick, opacity=0.5] 
+                (axis cs:\linestart,\linestart) -- 
+                (axis cs:\lineend,\lineend);
+            }
+    ]
+        %
+        \addplot[
+            only marks,
+            mark=square*,
+            mark size=1.5pt,
+            color=Set1Red,
+            fill opacity=\scatteropacity,
+            draw opacity=\scatteropacity,
+            point meta=explicit,
+        ] table[x=kron_infl_10, y=true, meta expr=1, col sep=comma] {\datacsvscatterone};
+        %
+        \ifdefined\hidelegend\else
+            \addlegendentry{EK-FAC (re-scaled)}
+        \fi
+        
+        %
+        \addplot[
+            only marks,
+            mark=triangle*,
+            mark size=1.5pt,
+            color=Set1Blue,
+            fill opacity=\scatteropacity,
+            draw opacity=\scatteropacity,
+            point meta=explicit,
+        ] table[x=trak_infl_10, y=true, meta expr=2, col sep=comma] {\datacsvscatterone};
+        %
+        \ifdefined\hidelegend\else
+            \addlegendentry{TRAK (re-scaled)}
+        \fi
+        
+        %
+        \addplot[
+            only marks,
+            mark=*,
+            mark size=2pt,
+            color=Set1Green,
+            fill opacity=1,
+            draw opacity=1,
+            point meta=explicit,
+        ] table[x=infls, y=true, meta expr=0, col sep=comma] {\datacsvscatterone};
+        %
+        \ifdefined\hidelegend\else
+            \addlegendentry{\method{} (unscaled)}
+        \fi
+
+        %
+        \ifdefined\hidelegend\else
+            \addlegendimage{dashed, gray, very thick,
+                legend image code/.code={
+                    \draw[dashed, gray, very thick] (0cm,0cm) -- (0.32cm,0cm); %
+                }
+            }
+            \addlegendentry{\ $y=x$}
+        \fi
+    \end{axis}
+    
+    %
+    \begin{axis}[
+        name=plot2,
+        at={($(plot1.east)+(1.2cm,0)$)},
+        anchor=west,
+        width=0.33\textwidth,
+        height=0.33\textwidth,
+        xlabel={Predicted Loss},
+        ylabel={},
+        title={Drop \frachtwo\%},
+        title style={yshift=-.15cm},
+        grid=both,
+        grid style={line width=.1pt, draw=gray!10},
+        major grid style={line width=.2pt,draw=gray!50},
+        scaled y ticks=true,
+        yticklabel style={/pgf/number format/.cd, fixed, precision=3},
+        xticklabel style={/pgf/number format/.cd, fixed, precision=3},
+        after end axis/.code={
+            %
+            \pgfmathsetmacro{\myxmin}{\pgfkeysvalueof{/pgfplots/xmin}}
+            \pgfmathsetmacro{\myxmax}{\pgfkeysvalueof{/pgfplots/xmax}}
+            \pgfmathsetmacro{\myymin}{\pgfkeysvalueof{/pgfplots/ymin}}
+            \pgfmathsetmacro{\myymax}{\pgfkeysvalueof{/pgfplots/ymax}}
+            %
+            \pgfmathsetmacro{\linestart}{max(\myxmin, \myymin)}
+            \pgfmathsetmacro{\lineend}{min(\myxmax, \myymax)}
+            %
+            \draw[dashed, gray, very thick, opacity=0.5] 
+                (axis cs:\linestart,\linestart) -- 
+                (axis cs:\lineend,\lineend);
+            }
+    ]
+        %
+        \addplot[
+            only marks,
+            mark=square*,
+            mark size=1.5pt,
+            color=Set1Red,
+            fill opacity=\scatteropacity,
+            draw opacity=\scatteropacity,
+            point meta=explicit,
+        ] table[x=kron_infl_10, y=true, meta expr=1, col sep=comma] {\datacsvscattertwo};
+        
+        \addplot[
+            only marks,
+            mark=triangle*,
+            mark size=1.5pt,
+            color=Set1Blue,
+            fill opacity=\scatteropacity,
+            draw opacity=\scatteropacity,
+            point meta=explicit,
+        ] table[x=trak_infl_10, y=true, meta expr=2, col sep=comma] {\datacsvscattertwo};
+        
+        \addplot[
+            only marks,
+            mark=*,
+            mark size=2pt,
+            color=Set1Green,
+            fill opacity=1,
+            draw opacity=1,
+            point meta=explicit,
+        ] table[x=infls, y=true, meta expr=0, col sep=comma] {\datacsvscattertwo};
+    \end{axis}
+    
+\end{tikzpicture}

@@ -1,0 +1,120 @@
+This appendix contains supplementary material for Section~\ref{sec:computing}.
+We describe two algorithms in detail: step-wise AD, and our own algorithm
+\replay{}. Refer to Section~\ref{sec:computing} for the notation used in this
+appendix.
+
+\subsection{Warmup: Step-wise AD}
+\label{sec:ad}
+We fully describe step-wise AD in Algorithm~\ref{alg:factored}. The algorithm
+requires storing all $T$ optimizer states, but requires constant memory overhead
+for each AD call (as each AD call is over a single step), making it feasible to
+compute for small setups.
+
+\begin{algorithm}
+  \SetKwFor{For}{\textcolor{forcolor}{for}}{\textcolor{forcolor}{do}}{}
+  \SetKw{Return}{\textcolor{forcolor}{Return}}{}
+  \SetKwFunction{traversereverse}{\textcolor{fncolor}{reverse\_inorder\_traversal}}
+  \DontPrintSemicolon
+  \hspace{0pt} \tcp{Store each optimizer state on disk}
+  $\{s_i\}_{i=0}^T \gets$ Train model via $A(z)$ \;
+  \;
+  \hspace{0pt} \tcp{Variables; shorthand for $\smash{\frac{\partial f(z)}{\partial z}}$ and $\smash{\frac{\partial f(z)}{\partial s_T}}$}
+  $\bar{z} \gets 0$ \;
+  $\bar{s}_T \gets \smash{\pfrac{g(s_T)}{s_T}}$ \qquad \tcp{One reverse-mode AD call} %
+  \;
+  \hspace{0pt} \tcp{Reverse-mode differentiate step-by-step}
+  \For{$s_i \gets s_{T-1}$ \color{forcolor}{\textbf{to}} \color{black}$s_0$}{
+
+    \hspace{0pt} \tcp{One reverse-mode AD call. Left: $\nabla_{s_i} f$. Right: contribution to $\nabla_{z} f$ at $i$.}
+        $\bar{s}_i \gets \bar{s}_{i+1} \cdot \pfrac{h_{i}(s_i, z)}{s_i}, \qquad \bar{z}_i \gets \bar{s}_{i+1} \cdot \pfrac{h_{i}(s_i, z)}{z}$\;
+        \;
+        $\bar{z} \leftarrow \bar{z} + \bar{z}_i$ \qquad \tcp{Accumulate metagradient}
+  }
+  \;
+  \Return $\bar{z}$ \;
+  \caption{metagradients in $\mathcal{O}(T)$ space.}
+  \label{alg:factored}
+\end{algorithm}
+
+\subsection{\replay{}}
+\label{app:replay}
+We now describe \replay{}, our method for calculating metagradients. For a free
+parameter $k \in \mathbb{N}$, \replay{} requires storing $\mathcal{O}(k\log_k(T))$ optimizer
+states and an additional $\mathcal{O}(\log_k(T))$ factor of computation. The
+free parameter $k$ controls the trade-off between storage and required compute.
+We fully describe \replay{} in Algorithm~\ref{alg:replay}. \replay{} modifies
+Algorithm~\ref{alg:factored} by retrieving the optimizer states in reverse order
+using a $k$-ary tree structure in lieu of a list of all the stored states.
+
+\subsubsection{Lazy $k$-ary tree}
+We now describe the $k$-ary tree structure that underlies \replay{}; for a
+visual reference of this tree with $k=2$, see
+Figure~\ref{fig:efficient_data_structure}. For ease of analysis we parameterize
+the total number of states as $n=T+1$ (and therefore take $n-1$ total training steps) when
+describing this data structure, and assume WLOG that $n$ is an integer power of
+$k$. At a high level, traversing this tree recursively replays retraining to
+recover all the optimizer states in reverse order, while deleting states that
+are no longer needed. We call this tree ``lazy'' because it retrains only when
+required to obtain states that are not yet retrieved.
+
+The tree is a complete $k$-ary tree with $n$ leaves (and therefore $\log_k(n)$
+depth) structured as follows. We start at the root, then recursively define the
+rest of the tree. Every node in the tree represents a single optimizer state.
+The root represents state $s_0$. To recursively define the remaining nodes: each
+non-leaf node $s_i$ at depth $d$ has $k$ equally spaced (in terms of state
+number) children starting---from left to right---at state $s_i$ and ending at
+$s_{i + n/k^{d+1}}$. This means that the leaves correspond---from left to
+right---to the states $s_0, s_1, \ldots, s_{n-1}$.
+
+We reduce the problem of iterating over the states in reverse to the problem of
+reverse in-order traversing this tree and yielding \textit{just} the
+leaves---this is exactly the states in reverse order. A reverse in-order
+traversal for this $k$-ary tree requires repeatedly: recursively traversing
+child nodes from largest to smallest, then visiting the parent node. We design
+the specifics of this traversal to maximize space and compute efficiency. To
+access the children of a parent node at traversal time, we replay model training
+from the smallest child state (which is stored in the parent state) to the
+largest child state and store all the children. We perform this operation
+recursively each time we traverse a node. After traversing the node's left side
+(i.e., after ascending from this node), we delete all its child states.
+
+Reverse in-order traversing this tree requires storing at most $k\log_k(n)$
+optimizer states at a time, and in aggregate requires retraining the model
+$\log_k(n)$ times. The argument for each is straightforward. Storage: the
+traversal requires storing at most $k$ states for each level that it descends
+(we store $k$ states whenever we first traverse to a parent node) and we remove
+$k$ states for each level that the traversal ascends (we remove $k$ states after
+we are done with the left traversal of a parent). Compute: we replay training to
+reinstantiate the children of every parent node a single time. The $k^d$ parent
+nodes at level $d$ each require replaying $\mathcal{O}(\nicefrac{n}{k^d})$
+states to reinstantiate children. Therefore, in a traversal, each level requires
+$\mathcal{O}(n)$ ($k^d \cdot \nicefrac{n}{k^d}$) optimizer steps. There are
+$\log_k(n)$ levels with parent nodes, which means a total of $\mathcal{O}(n
+\log_k(n))$ optimizer steps, or a multiplicative factor of
+$\mathcal{O}(\log_k(n))$ steps compared to model training.
+
+\begin{algorithm}
+  \SetKwFor{For}{\textcolor{forcolor}{for}}{\textcolor{forcolor}{do}}{}
+  \SetKw{Return}{\textcolor{forcolor}{Return}}{}
+  \SetKwFunction{traversereverse}{\textcolor{fncolor}{reverse\_inorder\_traversal}}
+  \DontPrintSemicolon $T \gets $ Lazy $k$-ary tree for $\mathcal{A}(z)$ \qquad \tcp{Make
+  lazy $k$-ary tree of Appendix~\ref{app:replay}} \;
+
+  \hspace{0pt} \tcp{Variables; shorthand for $\smash{\frac{\partial f(z)}{\partial z}}$ and $\smash{\frac{\partial f(z)}{\partial s_T}}$}
+  $\bar{z} \gets 0$ \;
+  $\bar{s}_T \gets \smash{\pfrac{g(s_T)}{s_T}}$ \qquad \tcp{One reverse-mode AD call} %
+  \;
+  \hspace{0pt} \tcp{Reverse-mode differentiate step-by-step; \underline{traverse $T$ instead of stored states}}
+  \For{$s_i \gets s_{T-1}$ \color{forcolor}{\textbf{to}} \color{black}$s_0 \in \traversereverse{T}$}{ 
+  \hspace{0pt} \tcp{One reverse-mode AD call. Left: $\nabla_{s_i} f$. Right: contribution to $\nabla_{z} f$ at $i$.}
+      $\bar{s}_i \gets \bar{s}_{i+1} \cdot \pfrac{h_{i}(s_i, z)}{s_i}, \qquad \bar{z}_i \gets \bar{s}_{i+1} \cdot \pfrac{h_{i}(s_i, z)}{z}$\;
+      \;
+      $\bar{z} \leftarrow \bar{z} + \bar{z}_i$ \qquad \tcp{Accumulate metagradient}
+  }
+  \;
+  \Return $\bar{z}$ \;
+  \caption{\textsc{Replay}. metagradients in
+  $\mathcal{O}(k\log_k(T))$ space.}
+  \label{alg:replay}
+\end{algorithm}
+

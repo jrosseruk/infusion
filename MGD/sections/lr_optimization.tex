@@ -1,0 +1,104 @@
+As a final application, we optimize the learning rate schedule
+of stochastic gradient descent (SGD) for training a CIFAR-10 classifier.
+By following the metagradients with respect to the learning rate
+at each step of training, our procedure matches grid searching
+over standard learning rate schedules---despite starting with na\"ive
+hyperparameters (a flat learning rate).
+
+Unlike the other applications discussed here,
+metagradients do not unlock state-of-the-art performance.
+Instead, we discuss this application to illustrate the flexibility
+of \replay{}, and in particular its ability to optimize metaparameters
+that do not directly affect the loss landscape (i.e., that only affect
+the model via the optimization trajectory).
+As we discuss in Section \ref{sec:related},
+approximate metagradient estimators cannot apply to these metaparameters.
+
+\subsubsection{Setting}
+To put learning rate schedule optimization into the metagradient framework,
+we parameterize a schedule as a vector $\bm{\eta} \in \mathbb{R}^k$
+comprising $k$ evenly-spaced keypoints,
+so that the learning rate at iteration $t$ is given by
+\begin{equation}
+  \label{eq:lr_schedule}
+  \eta(t) = \eta_{\lfloor kt/T \rfloor} + \frac{kt/T - \lfloor kt/T
+  \rfloor}{\lceil kt/T \rceil - \lfloor kt/T \rfloor} (\eta_{\lceil
+  kt/T \rceil} - \eta_{\lfloor kt/T \rfloor}),
+\end{equation}
+i.e., a linear interpolation between the keypoints.
+\begin{itemize}
+  \item[(a)] the metaparameter $\bm{\eta} \in \mathbb{R}^k$ is a
+    vector of $k$ keypoints;
+  \item[(b)] the algorithm $\mathcal{A}$ maps metaparameters
+    $\bm{\eta}$ to a trained model $\mathcal{A}(\bm{\eta})$ by
+    training a model for $T$ iterations with the learning rate schedule
+    defined by \eqref{eq:lr_schedule};
+  \item[(c)] the output function $\phi$ evaluates average loss on the
+    validation set $\mathbf{X}_{val}$.
+\end{itemize}
+
+\subsubsection{Algorithm}
+Following the theme of the rest of this section, we optimize the
+metaparameter $\bm{\eta}$
+directly using MGD. In particular, we initialize the keypoints to be
+a flat learning rate schedule,
+and then update the keypoints using the metagradient with respect to
+the validation loss,
+\begin{align*}
+  \bm{\eta}^{(t+1)} = \bm{\eta}^{(t)} - \alpha \cdot
+  \mathrm{sign}\left(\nabla_{\bm{\eta}}
+  \phi(\mathcal{A}(\bm{\eta}^{(t)}))\right).
+\end{align*}
+
+\begin{figure}[tp]
+    \centering
+    \input{pgffigs/lr_opt_result/both_graph.tex}
+    \caption{Target and test accuracies of MGD's learning rate schedule
+      over time closely match or exceed those found by a grid search over
+      hundreds of combinations of hyperparameters.  95\% confidence
+    intervals are plotted for MGD's results.}
+    \label{fig:mgd_vs_grid}
+\end{figure}
+
+\subsubsection{Evaluation}
+We aim to select the learning rate schedule that minimizes the
+expected test set loss.
+To do so, we reserve 90\% of the CIFAR-10 test set as a ``validation set''
+on which we select hyperparameters.
+We then use the remaining 10\% as a test set. We compare the
+following two approaches:
+\begin{itemize}
+  \item {\bf Grid search:} We construct a grid over different one cycle
+    learning rate schedules, varying the peak learning rate, starting learning
+    rate, ending learning rate, and peak learning rate time. In total, we
+    consider over 1,000 different learning rate schedules. We use the reserved
+    90\% of the test set to select the best learning rate schedule
+    from the grid.
+  \item {\bf Metagradient descent (MGD):} We run 50 steps of
+    MGD starting from a highly suboptimal flat learning rate schedule, aiming to
+    minimize loss on the reserved 90\% of the test set. We use the
+    last iteration
+    of MGD as our learned learning rate schedule.
+\end{itemize}
+We evaluate the performance of each final learning rate schedule on the held-out
+10\% test set and average the results over the same set of 5 unseen
+random seeds.
+ 
+
+\paragraph{Results.}
+Comparing our learned hyperparameter schedule to grid search,
+as shown in Figure \ref{fig:mgd_vs_grid}, our learned schedule
+using only 50 steps of MGD matches the performance of the state-of-the-art
+onecycle schedule found via grid search over more than 1000 configurations.
+An important caveat, however, is that these numbers are not directly comparable:
+grid search can be run in parallel across many machines, while steps
+of MGD must be run sequentially.
+
+In practice, we do not advise using MGD for optimizing low-dimensional
+hyperparameters, especially ones that have been thoroughly optimized by grid
+search (such as CIFAR-10 learning rate schedules
+\citep{smith2017super,page2018cifar,li2019exponential,jordan202494}). Still, an
+interesting avenue for future work is to study the utility of MGD for optimizing
+high-dimensional hyperparameters that are less well-studied, such as
+per-parameter/layer learning rates/weight decays for language models, attention
+hyperparameters, or gradient preconditioners.

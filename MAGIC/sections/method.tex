@@ -1,0 +1,276 @@
+\section{\method{}: Calculating the exact influence function at scale} We now
+present \method{}, our method for nearly-optimal single-model data attribution.
+The skeleton of our method is conceptually straightforward: we exactly calculate
+the influence function in large-scale learning settings.
+In this section, we first formally define the influence function;
+we then define a specific class of learning algorithms that we will consider;
+and finally, we present our method for calculating the exact influence function
+for this class of learning algorithms.
+
+\subsection{The influence function} %
+\label{sec:influence_fn}
+At the core of our method is a statistical primitive
+known as the {\em influence function approximation}
+\citep{hampel1947influence,koh2017understanding,giordano2019swiss}.
+The main idea is to approximate the model output $f$ for a given
+data weighting
+$\wvec$ using the following first-order Taylor expansion:
+\begin{equation}
+  \label{eq:infl_fn}
+  \hat{f}(\wvec) := f(\mathbf{1}_n) +
+  \left(\frac{\partial f(\wvec)}{\partial
+  \wvec}\bigg|_{\wvec=\mathbf{1}_n}\right)^\top  (\wvec -
+  \mathbf{1}_n);
+\end{equation}
+The key term in this estimate is the gradient
+$\nicefrac{\partial f(\wvec)}{\partial \wvec}$ evaluated at
+$\wvec=\mathbf{1}_n$, called the \textit{influence function}.
+Intuitively, this term captures the effect of infinitesimally up- or
+down-weighting each training example on the model output.
+While well-defined, this quantity is not trivial to compute:
+after all, it is the gradient ``through'' the process of training
+the model with algorithm $\alg{}$.
+
+
+
+\paragraph{The main challenge of influence functions in large-scale settings:
+computing the gradient.} When the learning algorithm $\alg{}$ is a {\em convex}
+optimization algorithm (e.g., linear regression, logistic regression, etc.),
+the influence function is straightforward to compute. Indeed, in such settings,
+the gradient $\nicefrac{\partial f(\wvec)}{\partial \wvec}$ has a simple closed
+form (via implicit differentiation),
+and the first-order Taylor expansion \eqref{eq:infl_fn} yields
+near-perfect estimates of the model output $f(\wvec)$ will behave on many
+choices of new data weightings $\wvec$
+\citep{koh2017understanding,rad2018scalable,koh2019accuracy,giordano2019swiss}.
+
+In large-scale, non-convex settings (e.g., in deep learning),
+however, the influence function is difficult to compute:
+no such closed form exists.
+Instead, large-scale data attribution methods that are based on
+\eqref{eq:infl_fn}
+must {\em approximate} the influence function
+\citep{koh2017understanding,bae2022if,park2023trak,bae2024training}.
+And while these methods have shown promise,
+they are not nearly as effective as the influence function is in
+analogous convex
+settings.
+
+
+
+
+
+\subsection{Focus: iterative smooth learning algorithms}
+Before describing our procedure, we first formalize the class of
+learning algorithms
+$\alg{}$ that we will consider, namely ones that are {\em iterative}
+and {\em smooth}.
+By restricting our focus to this class
+of learning algorithms, we ensure that the influence function is well-defined.
+Note: this class of algorithms is extremely general and captures,
+e.g., large-scale (transformer-based) language model training or deep image
+classifier training (sometimes with slight changes from standard
+learning algorithms).
+
+\subsubsection{Iterative learning algorithms}
+First, we require that the learning algorithm $\alg{}$
+is {\em iterative}, i.e., it takes the form
+\begin{align}
+  \label{eq:iterative_algo}
+  \alg(\wvec) := \st{T} \quad \text{for} \quad
+  \st{t+1} &:= h_t(\st{t}, \mathbf{g}_t(\st{t}, \wvec))
+  \quad \text{ and } \quad \mathbf{g}_t(\st{t}, \wvec) :=
+  \sum_{i\in B_t} w_i \cdot \nabla_{\st{t}} \ell(z_i; \st{t}).
+\end{align}
+Above,
+$\st{t}$ is the optimizer state (including model parameters),
+which is iteratively updated by a function $h_t$
+starting from a fixed initial state $\st{0}$.
+We let the number of training steps be $T$;
+$B_t \subset [N]$ is a minibatch sampled at step $t$;
+and $\ell(z_i; \st{t})$ is the loss on
+sample $z_i$ given optimizer state $\st{t}$.
+
+The vast majority of large-scale learning algorithms are iterative
+in this sense---we give a few examples below.
+Recall that the learning algorithm $\alg{}$ takes as input a
+data weighting $\wvec$ over the training set, and outputs
+a machine learning model trained on the weighted dataset.
+The algorithm thus encapsulates all aspects of the training setup
+beyond the training data weights, including the model architecture,
+optimizer, and hyperparameters.
+
+\begin{example}[Training an ResNet with SGD]
+  Here, the optimizer state $\st{t}$ is the parameter vector
+  $\theta_t$ at step $t$,
+  the loss function $\ell(z_i; \st{t})$ is the cross-entropy loss of a ResNet
+  with parameters $\st{t}$ on a given training example $z_i$,
+  and the update function $h_t$ is the SGD update step
+  $$h(\st{t}, \mathbf{g}_t) := \st{t} - \eta_t \cdot \mathbf{g}_t,$$
+  where $\eta_t$ is the learning rate at step $t$.
+\end{example}
+
+\noindent More complex optimizers can be handled by extending the definition
+of the optimizer state $\st{t}$ beyond just the parameter vector,
+as we show in the following example.
+\begin{example}[Training a language model with Adam]
+  Here, the optimizer state $\st{t} = (\theta_t, m_t, v_t)$,
+  where $\theta_t$ is the parameter vector at step $t$,
+  $m_t$ is the first moment estimate of the gradient,
+  and $v_t$ is the second moment estimate of the gradient.
+  The loss function $\ell(z_i; \st{t})$ is the cross-entropy loss of a language
+  model with parameters $\theta_t$ on a given training example $z_i$,
+  and the update function $h_t$ is the Adam update step:
+  $$h(\st{t}, \mathbf{g}_t) := \left[
+    \begin{array}{c}
+      \theta_t - \eta_t \cdot \frac{\sqrt{v_t}}{\sqrt{m_t +
+        \epsilon_{\mathrm{root}}} +
+      \epsilon} \cdot \mathbf{g}_t \\
+      \beta_1 \cdot m_t + (1 - \beta_1) \cdot \mathbf{g}_t \\
+      \beta_2 \cdot v_t + (1 - \beta_2) \cdot \mathbf{g}_t^2
+    \end{array}
+  \right]$$
+  where $\eta_t$ is the learning rate at step $t$.
+\end{example}
+
+
+
+\subsubsection{Smooth learning algorithms}
+Finally, for predictive data attribution to even be possible (recalling
+Definition \ref{def:predictive_data_attribution}), we must ensure that the
+learning algorithm $\alg{}$ is (qualitatively) well-behaved as a function of the
+data weights $\wvec$.
+Indeed, when this is not the case,
+it is unlikely that {\em any} simple predictor $\hat{f}$
+will be able to accurately predict $f(\wvec)$ from $\wvec$.
+To formalize this requirement, we consider learning algorithms $\alg{}$ that are
+{\em smooth} in $\wvec$, as described by \citet{engstrom2025optimizing}.
+In particular, a learning algorithm $\alg{}$ is smooth in $\wvec$ if,
+for any measurement function $\phi$, small perturbations to the data weights
+$\wvec$ result in only small changes to the gradient
+$\nicefrac{\partial f(\wvec)}{\partial \wvec}$.
+
+To see why smoothness is necessary to predict $f$ with a simple function, we walk
+through a simple example (visualized in Figure \ref{fig:smoothness}).
+For a model output function $f$, consider slightly upweighting the
+$i$-th training sample,
+and measuring the change in the model output $\Delta(\varepsilon) :=
+f(\wvec + \varepsilon \mathbf{1}_i) - f(\wvec)$.
+If the learning algorithm is smooth, then this change is well-behaved as a
+function of $\varepsilon$.
+In particular, the change $\Delta(2\varepsilon)$ should be
+reasonably approximated by $2\Delta(\varepsilon)$.
+On the other hand, if the learning algorithm is \textit{not} smooth,
+$\Delta(\varepsilon)$ may change wildly as $\varepsilon$ varies,
+precluding any simple prediction method from being able to accurately
+predict $f(\wvec)$ from $\wvec$.
+
+
+\begin{figure}[h]
+  \centering
+  \input{plots/smoothness}
+  \caption{Smoothness aids predictive data attribution. We plot the change in
+    data weights $\varepsilon$ against the change in model output
+    $\Delta(\varepsilon)$ for two hypothetical learning algorithms. On the left
+    is a non-smooth setting where the
+    gradient $\nicefrac{f(\wvec)}{\wvec}$ varies wildly with
+    $\varepsilon$. On the
+  right is a smooth setting where the change is well-behaved. }
+  \label{fig:smoothness}
+\end{figure}
+
+\begin{remark}[How restrictive is smoothness?]
+  Unlike iterativity, smoothness is not an inherent
+  property of standard learning algorithms.
+  Indeed, many standard training routines are \underline{not}
+  smooth.
+  In such cases, there is
+  \underline{\smash{no}} good data attribution method $\hat{f}$
+  satisfying a natural ``additivity'' property \citep{saunshi2023understanding}
+  (ruling~out essentially all known data attribution methods).
+  Fortunately, however, as observed by prior work,
+  one can often construct a ``smooth counterpart''
+  to any given non-smooth learning algorithm \citep{engstrom2025optimizing}.
+  Motivated by this finding (and the impossibility above),
+  we focus our attention on smooth learning algorithms.
+\end{remark}
+
+
+\subsection{Calculating the exact influence function}
+To compute the exact influence function for a model output function $f$
+that is the output of an iterative smooth learning algorithm $\alg{}$,
+we leverage recent developments in {\em metagradient} calculation
+\citep{maclaurin2015gradient,franceschi2017forward,lorraine2020optimizing,engstrom2025optimizing}.
+A metagradient is a gradient of a machine learning model's output
+with respect to a design choice made prior to training.
+In recent work, \citet{engstrom2025optimizing} present an algorithm
+called \replay{}
+that {\em exactly} calculates the metagradient for iterative and smooth
+learning algorithms.
+
+\paragraph{Calculating the influence function with \replay{}.}
+Observe that when the design choice is the data weighting $\wvec$,
+the metagradient---the gradient of the model output $f$ with respect to
+$\wvec$---is precisely the influence function.
+We can thus directly apply the \replay{} algorithm
+\citep{engstrom2025optimizing}
+to calculate the exact
+influence function.
+Adapted to our setting, \replay{} calculates the metagradient by
+exploiting the following identity, which follows from the chain rule
+applied to the computation graph illustrated in Figure
+\ref{fig:computation_graph}:
+\begin{align}
+  \nabla_{\wvec} f(\wvec)
+  &= \sum_{t=0}^{T-1} \underbrace{
+    \frac{\partial f(\wvec)}{\partial \st{t+1}} \cdot
+    \frac{\partial h_t(\st{t}, \mathbf{g}_t(\st{t}, \wvec))}{\partial \wvec}
+  }_{\text{contribution of $\wvec$ to $f(\wvec)$ through $\st{t+1}$}}
+  \label{eq:replay_meta_grad}
+\end{align}
+
+\begin{figure}[t]
+  \centering
+  \input{figures/computation_graph}
+  \caption{Forward computation graph for a model output function $f$
+    mapping from data weights $\wvec$ to the model output.
+    The exact influence function $\nicefrac{\partial f(\wvec)}{\partial \wvec}$
+    is the {\em metagradient} of the model output with respect to the
+  data weights $\wvec$.}
+  \label{fig:computation_graph}
+\end{figure}
+
+Motivated by this observation, \replay{} operates as follows:
+\begin{enumerate}
+  \item Initialize $\Delta_T = \frac{\partial f(\wvec)}{\partial
+    \st{T}} = \nabla_{\st{T}} \phi(\st{T})$
+  \item For each $t = T-1, \ldots, 0$:
+    \begin{enumerate}
+      \item Load state $\st{t}$ and minibatch $B_t$
+      \item Calculate $\beta_t = \nabla_{\wvec} \left(h_t(\st{t},
+        \mathbf{g}_t(\st{t}, \wvec))^\top \Delta_{t+1}\right)$,
+        the contribution of $\wvec$ to $\phi(\st{T})$ through the
+        $t$-th step of the learning algorithm
+      \item Advance $\Delta_t = \nabla_{\st{t}} \left(h_t(\st{t},
+        \mathbf{g}_t(\st{t}, \wvec))^\top \Delta_{t+1}\right)$,
+        which is $\nicefrac{\partial f(\wvec)}{\partial \st{t}}$
+    \end{enumerate}
+  \item Return $\beta = \sum_{t=0}^{T-1} \beta_t$ as the exact
+    influence function
+\end{enumerate}
+
+\noindent By leveraging an efficient data structure to
+load the states and minibatches,
+\replay{} is able to calculate the exact influence function
+for IDS model output functions at a computational cost of
+$T + T\log(T)$ total training steps, and $\log(T)$ memory.
+We refer the reader to \citet{engstrom2025optimizing} for a complete
+description of the algorithm.
+
+
+
+
+
+
+
+

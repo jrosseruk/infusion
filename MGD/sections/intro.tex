@@ -1,0 +1,168 @@
+
+{\em How should I clean my data? What architecture should I use?}
+Training large-scale (i.e., deep) machine learning models entails
+making many design decisions.
+When making such decisions,
+typical practice is to
+exhaustively search over a small set of standard options.
+For example, we might try a few well-known
+data cleaning heuristics,
+construct a grid over a hyperparameters,
+and choose the options that yield the best models.
+However, given that this process explores only a small part of the overall
+design space (e.g., one can construct $2^n$ possible training datasets from
+a pool of $n$ candidate datapoints),
+it is unlikely that this approach really yields the
+\textit{optimal} training configuration.
+
+How can we find optimal (or at least, better) training configurations?
+To do so,
+we take the {optimization} perspective on designing model
+training.
+From this well-studied
+perspective,
+deciding on a training configuration---or as we will call it,
+a set of {\em metaparameters}---is just a high-dimensional optimization
+problem.
+The input space of this problem comprises all possible metaparameter choices,
+including which datapoints to train on, what model architecture to use,
+and how to initialize model weights.
+The objective function
+takes in a set of metaparameters,
+trains a machine learning model according to those metaparameters,
+and then returns a target metric evaluated on that model
+(e.g., test accuracy).
+From this perspective, any procedure for selecting
+metaparameters---including the typical practice of
+grid-searching over standard options---is just an optimization algorithm,
+whose goal is to
+maximize the objective function with respect to the (high-dimensional) input.
+
+Given that selecting metaparameters is ``just'' a
+high-dimensional optimization problem,
+a natural tool to consider is the {\em gradient}.
+After all, in many contexts,
+gradients offer a more effective approach to maximizing
+high-dimensional functions than grid search.
+Indeed, for a sufficiently
+``well-behaved'' function $\smash{f(x)}$ with gradient $\smash{\nabla f(x)}$,
+we can optimize $f$ by
+iteratively updating $x$ in the direction of $\nabla f(x)$.
+This insight suggests a generic recipe for selecting metaparameters:
+first, make the objective differentiable with respect to
+the metaparameters; second, update via gradient steps.
+
+Now, the idea of using gradients to search for metaparameters is not new.
+Indeed, there is a substantial line of work that aims to optimize metaparameters
+(e.g., architectures, regularizers, or data augmentation schemes)
+with gradient-based methods
+\citep{maclaurin2015gradient,liu2018darts,lorraine2020optimizing}.
+However, such methods have not managed to scale beyond relatively
+small settings. This state of affairs prompts our main question:
+\begin{center}
+  \vspace*{-.2em}
+  {\em Can we \underline{\smash{scalably}} configure model training
+  using gradient-based methods?}
+  \vspace*{-.2em}
+\end{center}
+
+
+
+\begin{figure}
+  \centering
+  \input{pgffigs/headline/headline}
+  \caption{Our proto-algorithm, metagradient descent (MGD),
+    uses gradients to achieve state-of-the-art performance across
+    a variety of applications, including data selection and
+  data poisoning.}
+  \label{fig:headline}
+\end{figure}
+
+\subsection{Contributions}
+In this work,
+we answer this question in the affirmative,
+adding ``gradient descent on metaparameters''
+to the large-scale machine learning toolkit.
+Along the way, we will face---and address---two main challenges.
+
+First, existing methods for computing metagradients do not scale.
+In response, we devise an algorithm, $\replay{}$,
+that can take
+metagradients in large-scale settings.
+By combining reverse-mode autodifferentiation (AD)
+with an efficient data structure,
+\replay{} can calculate exact metagradients for models
+with billions of parameters and thousands of training steps.
+
+Second,
+we find that metagradients of standard training routines
+are not necessarily helpful for optimization,
+which we connect to {\em non-smoothness} of the metaparameter
+optimization landscape.
+Borrowing tools from convex optimization,
+we devise a framework for designing
+``metasmooth'' training routines that {\em do} admit helpful
+metagradients.
+
+Addressing the challenges above
+unlocks a simple recipe
+for solving a broad range of machine learning tasks:
+(a) frame the task as a continuous optimization problem over metaparameters;
+(b) design a metasmooth training routine;
+(c) perform metagradient descent (MGD).
+Applying this recipe:
+\begin{itemize}
+  \item In the DataComp-\texttt{small} competition \citep{gadre2024datacomp},
+  we achieve state-of-the-art pre-training data selection for CLIP
+    (2x larger performance improvement than the previous
+    DataComp-\texttt{small} leader \citep{ecodatum2024ecodatum});
+  \item In the context of data selection for instruction tuning (as introduced by \citet{xia2024less}),
+    we substantially improve on data selection for Gemma-2B
+    (outperforming existing selection methods
+    as well as full-data training);
+    \item In the {\em accuracy-degrading} data poisoning setting
+    (defined by \citet{huber1964robust} and pioneered by
+    \citet{lu2022indiscriminate} for deep neural networks),
+      we improve attacks on DNNs by an order of magnitude,
+      dropping CIFAR-10 accuracy from $92\%\!\to\! 78\%$
+      (the best previous attack \citep{lu2023exploring} 
+      only reduces accuracy to $91\%$);
+  \item For the task of hyperparameter optimization, we 
+    efficiently find a competitive CIFAR-10 learning rate schedule 
+    (matching the performance of a schedule found by grid search).
+\end{itemize}
+
+
+
+
+
+\begin{figure}[h]
+  \centering
+  \begin{tikzpicture}[>=stealth,font=\Large]
+    \node (z) at (0,0) {$z$};
+    \node (theta) at (3,0) {$\theta = \mathcal{A}(z)$};
+    \node (phi) at (6,0) {$\phi(\theta)$};
+
+    \draw[->] (z) -- (theta);
+    \draw[->] (theta) -- (phi);
+
+    \draw[blue,dashed,->] (phi) to[bend right=40] node[above]
+    {$\nabla_z \phi(\mathcal{A}(z))$} (z);
+
+    \node[above] at (0,-0.9) {\normalsize Training setup};
+    \node[above] at (3,-0.9) {\normalsize Trained model};
+    \node[above] at (6,-0.9) {\normalsize Observed behavior};
+  \end{tikzpicture}
+  \caption{An illustration of the metagradient.
+    We embed a given aspect of the training setup (e.g., the training
+    dataset, or optimizer hyperparameters)
+    into a continuous {\em metaparameter} vector $z \in \mathbb{R}^d$.
+    This metaparameter defines a model $\mathcal{A}(z)$
+    by way of the learning algorithm $\mathcal{A}$,
+    which in turn defines an output $\phi(z)$.
+    The {\em metagradient}
+    $\nabla_z \phi(\mathcal{A}(z)) \in \mathbb{R}^d$
+    is the gradient of this model output with respect to
+  the metaparameter.}
+  \label{fig:meta_gradient}
+\end{figure}

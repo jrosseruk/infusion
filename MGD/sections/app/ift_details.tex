@@ -1,0 +1,102 @@
+In this section, we describe the details of the IFT setting of \citet{xia2024less},
+as well as the details of our method.
+
+\paragraph{Setting.}
+The setting contains a fixed data pool: instruction fine-tuning data from a data
+pool consisting of four combined IFT datasets (cf. Table~\ref{tab:ift_training_dataset}
+and \citet{xia2024less} for more information). The goal is to select the data
+that yields the best possible task performance for a LoRA fine-tuning run.
+We adapt a LoRA to a Gemma-2B model (the pretraining-only Gemma-2B model)
+using the LoRA configuration from \citet{xia2024less}.
+
+\paragraph{Data splits.}
+See Table~\ref{tab:datasets} for a description of the available data for each
+task, along with the task setup details. \citet{xia2024less} constructed these
+extra samples by drawing from the ICL samples given in the tasks originally.
+Note that we drop TydiQA from the original work of \citet{xia2024less} as there
+are not enough samples to select with (there is only one from each category, for
+a total of 7). 
+
+\paragraph{Method.}
+We execute Algorithm~\ref{alg:depsing} with $k$ as 150 steps from the end of training and
+the Bernoulli parameter $p$ controlling the step size as 0.2. At each step, we
+choose a ``minibatch'' with a size equal to half the target set and a quarter of
+the target set for BBH and MMLU, respectively (that is, we only select to
+optimize performance on a fraction of the target set at a time). We model
+select over iterates and hyperparameters by (a) choosing the top three steps in
+terms of validation loss for each run (b) selecting the best one in terms of
+full train set accuracy (including the part that we trained on). We perform this
+procedure---akin to Pareto optimization~\citep{jin2008pareto}---because the
+validation set is so small (as the overall set of samples is very small) that it
+is difficult to select models without overfitting otherwise.
+
+We compare with two baselines: training on the full dataset (i.e., training on
+the entirety of all the data for a single epoch), and LESS (we use the data
+selected according to ``LESS-T''~\citep{xia2024less}, following the
+recommendation of 4 epochs).
+
+For model training, we train with ADAM ($\beta_1=0.95, \beta_2=0.975$,
+decoupled weight decay as $10^{-5}$) and a one-cycle linear schedule starting
+at $10^{-6}$ of the maximum learning rate, reaching the peak over 25\% of
+training, then ending at 0.1 of the maximum learning rate. We insert a positive
+$\epsilon_\textrm{root}$ into the inverse square root term in the ADAM update
+to prevent metagradient (and to a lesser extent update) blowup (see Eq.\
+\ref{eq:adam_update}). The model training is the same across selected data,
+except that we use $\epsilon_\textrm{root}=10^{-7}$ for MGD-selected data and
+$\epsilon_\textrm{root}=10^{-9}$ for the other runs (we select the optimal
+parameter for each class of method). We additionally hyperparameter select for
+the best learning rate across each baseline by minimizing validation set loss;
+LESS performs best with a smaller learning rate ($0.00024$ for BBH and
+$0.00012$ for MMLU) than training on the full dataset or with MGD ($0.0006$ for
+both). We normalize the loss of each training sample by taking the mean across
+predicted tokens during training, and do not divide by the batch size
+(important for scaling the $\epsilon_\mathrm{root}$ term, but otherwise ADAM is
+invariant to the scale). 
+
+\paragraph{Selecting smooth model training for MGD.} For MGD runs, we jointly
+select learning rate and $\epsilon_{\mathrm{root}}$ using the smoothness metric
+of Section~\ref{sec:localpred}. We find that the choice of $\epsilon_\mathrm{root}$ term
+is important (just as the choice of $\epsilon$ is important in standard ADAM training); choosing a much larger term results in non-smooth training. We also find that
+metagradients are sensitive to learning rate schedule; choosing a much larger or
+smaller maximum learning rate results in non-smooth training.
+
+\begin{table}[h]
+    \caption{Overview of datasets used in IFT dataset selection (from \citet{xia2024less}).}
+    \label{tab:datasets}
+    \centering
+    \begin{tabular}{lccccccc}
+        \toprule
+        \textbf{Dataset} & \textbf{\# Shot} & \textbf{\# Tasks} & $n_\mathrm{target}$ & $n_\mathrm{val}$  & $n_\mathrm{test}$ & \textbf{Answer Type} & \textbf{Type of Task} \\
+        \midrule
+        MMLU & 5 & 57 & 57 & 228 & 18,721 & Letter options & Knowledge/Recall \\
+        BBH & 3 & 23 & 23 & 46 & 920 & COT and answer & Reasoning \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{table}[h]
+    \centering
+    \caption{Details of IFT training datasets.}
+    \label{tab:ift_training_dataset}
+    \begin{tabular}{l l l c c}
+        \toprule
+        Dataset & \# Instance & Sourced from & Prompt Len. & Completion Len. \\
+        \midrule
+        FLAN V2 & 100,000 & NLP datasets and human-written instructions & 355.7 & 31.2 \\
+        CoT & 100,000 & NLP datasets and human-written CoTs & 266 & 53.2 \\
+        Dolly & 15,011 & Human-written from scratch & 118.1 & 91.3 \\
+        Open Assistant 1 & 55,668 & Human-written from scratch & 34.8 & 212.5 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\paragraph{IFT results} \quad %
+
+\begin{figure}[hb]
+	\centering
+	\caption{MGD dataset selection improves the validation loss over metagradient steps, demonstrating our method's efficacy.  However, the gap between loss on samples MGD directly optimizes on and the validation samples widens over the number of iterates, and there is overfitting depending on the number of steps taken. }
+	\includegraphics[width=0.45\textwidth]{plots/bbh_loss_over_time.pdf}
+	\quad
+	\includegraphics[width=0.45\textwidth]{plots/mmlu_loss_over_time.pdf}
+	\label{fig:bbh_mmlu_over_time}
+\end{figure}

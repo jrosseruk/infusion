@@ -1,0 +1,53 @@
+\pgfplotsset{colormap/Set2}
+\pgfplotsset{scaled y ticks=false}
+\pgfplotsset{grid style={dashed,gray}}
+
+\begin{tikzpicture}
+\begin{axis}[
+    ybar,
+    axis lines=box,
+    ytick pos=left,
+    axis on top=false,
+    height=4.8cm,
+    width=7.5cm,
+    colormap name={Set2},
+    ymin=-0.2,
+    ymax=1.7,
+    ylabel={$\Delta$ Accuracy (\%)},
+    symbolic x coords={BBH,MMLU},
+    xtick=data,
+    xtick style={draw=none},
+    enlarge x limits=0.5,
+    bar width=15pt,
+    grid=major,
+    xmajorgrids=false,
+    extra y ticks={0},
+    extra y tick labels={},
+    extra y tick style={
+      grid=major,
+      major grid style={black, solid}
+    },
+]
+
+\addplot[
+    fill=mapped color,
+    draw=mapped color,
+    point meta=0,
+    index of colormap=1,
+] coordinates {
+    (BBH,-0.047672)
+    (MMLU,0.540605)
+};
+
+\addplot[
+    fill=mapped color,
+    draw=mapped color,
+    point meta=0,
+    index of colormap=0,
+] coordinates {
+    (BBH,1.481074)
+    (MMLU,1.297280)
+};
+
+\end{axis}
+\end{tikzpicture}

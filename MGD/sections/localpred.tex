@@ -1,0 +1,368 @@
+Given a training function $f$, \replay{} enables us to compute metagradients
+$\nabla f(\mathbf{z})$ for any setup $\mathbf{z}$. Can we immediately
+use these metagradients to
+optimize model training setups?
+The answer is (generally) no:
+we find that applying \replay{} to a function $f$ representing a standard model
+training and evaluation routine yields metagradients that are often
+$\pm\infty$-valued and generally unhelpful for optimization.
+Indeed, previous work has observed similar issues optimizing
+over even (very) small-scale training
+\citep{bengio1994learning,pearlmutter1996investigation,maclaurin2015gradient}.
+
+In this section, we show that an underlying source of the issue is the
+{landscape} of the metaparameter optimization problem.
+We then present a framework for modifying standard learning
+algorithms
+to admit useful metagradients, i.e., to be {\em metasmooth}.
+To use a familiar analogy:
+just as residual connections and improved initialization schemes can improve
+optimization in standard deep learning algorithms, our framework introduces an
+analogous set of modifications to enable optimization with metagradients.
+
+\subsection{The metaparameter optimization landscape}
+\label{sec:smoothness}
+We first review the notion of smoothness from optimization theory,
+and then adapt it to the setting of metagradients.
+The resulting {\em metasmoothness} metric allows us to quantify
+(and later, improve) the amenability
+of the metaparameter optimization problem to gradient-based methods.
+
+\paragraph{Smoothness.}
+In optimization theory,
+the basic property of a function that controls how effectively it can
+be optimized
+with first-order methods is {\em smoothness}.
+Specifically, a function $f(\mathbf{z})$ is $\beta$-smooth at a point
+$\mathbf{z}$
+if its gradient $\nabla f$ satisfies the property that
+\begin{equation}
+  \label{eq:smoothness}
+  \|\nabla f(\mathbf{z}) - \nabla f(\mathbf{z}')\| \leq \beta \cdot
+  \|\mathbf{z} - \mathbf{z}'\| \qquad \text{ for all $\mathbf{z}'$},
+\end{equation}
+or in other words, if its gradient does not change too quickly around
+$\mathbf{z}$.
+To motivate this definition:
+if a function $f$ is
+$\beta$-smooth at $\mathbf{z}$, then a step of gradient descent with step size
+$\nicefrac{1}{\beta}$ will successfully decrease the value of the function:
+\begin{align*}
+  f\left(\mathbf{z} - \frac{1}{\beta} \nabla f(\mathbf{z})\right)
+  \leq f(\mathbf{z}) - \frac{1}{2\beta}\|\nabla f(\mathbf{z})\|^2.
+\end{align*}
+This guarantee makes $\beta$-smoothness
+a good measure of gradient utility.
+
+\paragraph{Metasmoothness.}
+There are two main challenges in adapting the
+smoothness property to the
+metagradient setting.
+First, evaluating \eqref{eq:smoothness} requires a search over all
+possible $\mathbf{z}'$,
+which is infeasible.
+Second, even if we could exactly evaluate the left-hand side of
+\eqref{eq:smoothness},
+it would be difficult to disentangle non-smoothness of the training function $f$
+from potential error in metagradient computation (e.g., a numerically unstable
+operation in \replay{}).
+
+To sidestep these issues, we propose a metric called {\em metasmoothness},
+given in Definition \ref{def:meta_smoothness}.
+Metasmoothness is cheap to compute---requiring only three evaluations of the
+training function---and does not rely on metagradient computation.
+For the remainder of this section, we fix a small constant $h > 0$,
+and define the corresponding
+finite-differences estimator of the directional derivative $\Delta_f$ as
+\begin{align*}
+  \Delta_f(\mathbf{z}; \mathbf{v}) := \frac{f(\mathbf{z} +
+  h\mathbf{v}) - f(\mathbf{z})}{h}.
+\end{align*}
+
+\begin{definition}[Metasmoothness of $f$ at $\mathbf{z}$ towards $\mathbf{v}$]
+  \label{def:meta_smoothness}
+  Consider a training function $f$ mapping metaparameters $\mathbf{z}
+  \in \mathbb{R}^n$
+  to model output $f(\mathbf{z}) \in \mathbb{R}$.
+  Given a metaparameter $\mathbf{z}$ and
+  a vector $\mathbf{v} \in \mathbb{R}^n$,
+  the metasmoothness of $f$ at $\mathbf{z}$ towards $\mathbf{v}$ is given by
+  \begin{align}
+    \label{eq:meta_smoothness_approx}
+    S_{h, \mathbf{v}}(f; \mathbf{z})
+    &\coloneqq
+    \bigg|\frac{\Delta_f(\mathbf{z} + h \mathbf{v}) -
+    \Delta_f(\mathbf{z})}{h} \bigg|.
+  \end{align}
+\end{definition}
+\noindent
+Definition \ref{def:meta_smoothness} measures the rate of change of
+the derivative of $f(\mathbf{z})$ in the direction of a given vector
+$\mathbf{v}$,
+and is therefore related to $\beta$-smoothness in that:
+\begin{itemize}
+  \item[(a)] If $f$ is $\beta$-smooth at $\mathbf{z}$, then $S_{h,
+    \mathbf{v}}(f; \mathbf{z}) \leq \beta$ for any $(h, \mathbf{v})$
+    (so Definition \ref{def:meta_smoothness} is {\em necessary} for smoothness).
+  \item[(b)] If $\lim_{h \to 0} S_{h, \mathbf{v}}(f; \mathbf{z}) \leq
+    \beta$ for all $\mathbf{z} \in \mathbb{R}^n$ and $\mathbf{v} \in
+    \mathbb{S}^{n-1}$,
+    then $f$ is $\beta$-smooth everywhere
+    (so a global version of Definition \ref{def:meta_smoothness} is
+    {\em sufficient} for smoothness).
+\end{itemize}
+
+\paragraph{Empirical metasmoothness.}
+Definition \ref{def:meta_smoothness} lets us measure the
+meta-smoothness of a
+training function $f$ at a particular metaparameter $\mathbf{z}$
+(towards a direction $\mathbf{v}$).
+This definition, however, has two shortcomings.
+First, recall that the training function $f$ is a composition of a learning
+algorithm $\mathcal{A}$ and an output function $\phi$,
+so the smoothness of $f$ depends on that of both $\mathcal{A}$
+and $\phi$ (in particular,
+  $\nicefrac{\partial f}{\partial \mathbf{z}} = \nicefrac{\partial
+  \phi}{\partial
+\mathcal{A}}\cdot \nicefrac{\partial \mathcal{A}}{\partial \mathbf{z}}$).
+Since the output
+function $\phi$ might be unknown ahead of time, we are most interested in
+measuring the {\em overall} metasmoothness of a learning algorithm
+$\mathcal{A}$.
+Second, while the result of \eqref{eq:meta_smoothness_approx} does have a
+concrete basis in optimization theory, it may not be easy to
+interpret in practice
+(e.g., what does $S = 200$ mean?).
+We address both issues simultaneously by
+(a) proposing an interpretable ``binarized''
+version of Definition \ref{def:meta_smoothness}, and
+(b) studying metasmoothness in the space of model parameters $\theta$,
+instead of the output space.
+\begin{definition}[Empirical metasmoothness of $\mathcal{A}$]
+  \label{def:avg_meta_smoothness}
+  Let $\mathcal{A}$ be a learning algorithm which maps metaparameters
+  $\mathbf{z} \in \mathbb{R}^n$
+  to model parameters $\theta \in \mathbb{R}^d$,
+  let $\mathbf{z}$ be a metaparameter vector,
+  and let $\mathbf{v}$ be a given direction.
+  Let $\mathbf{d} \in \mathbb{R}^d$ be the
+  per-coordinate variation in $\theta$, i.e.,
+  \begin{align*}
+    \mathbf{d} = |\mathcal{A}(\mathbf{z} + 2h\mathbf{v}) -
+    \mathcal{A}(\mathbf{z})|  %
+  \end{align*}
+  The empirical $(h, \mathbf{v})$-metasmoothness of $\mathcal{A}$ at
+  $\mathbf{z}$ is given by
+  \begin{align}
+    \label{eq:avg_meta_smoothness}
+    \widehat{S}_{h, \mathbf{v}}(\mathcal{A}; \mathbf{z})
+    & =
+    \mathrm{sign}(\Delta_{\mathcal{A}}(\mathbf{z};\mathbf{v}))^\top\cdot
+    \mathrm{diag}\left(
+      \frac{\mathbf{d}}{\|\mathbf{d}\|_1}
+    \right)\cdot \mathrm{sign}(\Delta_{\mathcal{A}}(\mathbf{z} +
+    h\mathbf{v};\mathbf{v})),
+  \end{align}
+  weights each parameter by its range.
+\end{definition}
+Intuitively, \eqref{eq:avg_meta_smoothness} measures the
+agreement in sign between the (finite-difference approximation
+of the) metagradient in the direction of $\mathbf{v}$ at $\mathbf{z}$
+and at $\mathbf{z} + h\mathbf{v}$,
+averaged across parameter coordinates and weighted by
+the variation in each coordinate.
+Taking a weighted average of sign agreements ensures that
+$\smash{\widehat{S} \in [-1, 1]}$ (making it easier to interpret than
+Definition \ref{def:meta_smoothness}).
+The $\smash{\mathrm{diag}(\nicefrac{\mathbf{d}}{\|\mathbf{d}\|_1})}$ term
+weights each agreement proportionally to the scale of the
+corresponding parameter change (downweighting, e.g., coordinates $i$ that
+are essentially constant).
+Finally, observe that Definition \ref{def:avg_meta_smoothness} is efficient
+to compute in practice: it requires only three calls to the learning
+algorithm $\smash{\mathcal{A}}$.
+
+
+\begin{remark}[]
+  Ideally, recalling the smoothness definition \eqref{eq:smoothness},
+  we would evaluate metasmoothness in all possible directions
+  $\mathbf{v}$ and all points $\mathbf{z}$. Empirically, we find in
+  the sequel (Section \ref{sec:improving})
+  that this single-direction approximation at a single point $\mathbf{z}$
+  still yields a useful estimate of metasmoothness
+  (e.g., one that correlates with metagradient utility).
+\end{remark}
+
+\begin{figure}
+  \centering
+  \begin{subfigure}[t]{0.61\textwidth}
+    \captionsetup{labelformat=empty}%
+    \input{pgffigs/smoothness_vs_acc/smoothness_vs_acc.tex}
+    \caption{(a)\quad\quad\quad\quad\quad\quad\quad\quad\quad\quad\quad\quad\quad}
+  \end{subfigure}
+  \begin{subfigure}[t]{0.37\textwidth}
+    \captionsetup{labelformat=empty}%
+    \raisebox{0.0135\height}{\input{pgffigs/smoothness_vs_opt/smoothness_vs_opt.tex}}
+    \caption{(b)\quad\quad\quad\quad}
+  \end{subfigure}
+  \caption{
+    \textit{(a)} For a variety of training configurations of a ResNet-9
+    model, we plot metasmoothness (Def. \ref{def:avg_meta_smoothness})
+    against test accuracy. Strategies such as increasing width, placing
+    batch normalization before activations, and scaling down network
+    outputs consistently improve  metasmoothness, at a minor cost to
+    accuracy.
+    \textit{(b)} Smoother training configurations can be optimized via
+    metagradients more effectively. Here, as in Section
+    \ref{sec:poisoning}, we use metagradients to gradient ascend on
+    validation loss.
+  }
+  \label{fig:smoothness_vs_accuracy}
+\end{figure}
+
+
+\subsection{Estimating and improving metasmoothness}
+\label{sec:improving}
+Having established a method for quantifying metasmoothness, we turn to the
+practical question: how can we design learning algorithms that are amenable to
+metagradient optimization? To answer this question,
+we introduce a
+straightforward
+framework: given a learning algorithm,
+explore a fixed menu of possible modifications to the
+training setup, and choose the combination that maximizes empirical
+metasmoothness.
+In practice, we find that this framework allows us to slightly modify learning
+algorithms in a way that makes them amenable to first-order methods.
+
+As a case study, we
+study the task of training ResNet-9 on the CIFAR-10 dataset
+\citep{krizhevsky2009learning}.
+We let the metaparameters $\mathbf{z}$ be
+a perturbation to the pixels of 1000 random training images
+(so $\smash{\mathbf{z} \in \mathbb{R}^{1000 \times 32 \times 32 \times 3}}$).
+We estimate
+the empirical metasmoothness of different learning algorithms $\mathcal{A}$
+at $\mathbf{z} = \bm{0}$ using Definition \ref{def:avg_meta_smoothness}.
+Concretely, we proceed as follows for each learning algorithm $\mathcal{A}$:
+\begin{enumerate}
+    \item Let $\mathbf{z}_0 = \bm{0}$ be the metaparameter corresponding to
+    the original dataset.
+    \item Sample a random perturbation vector $\mathbf{v} \sim \mathcal{N}(0, 1)$.
+    \item Compute the empirical metasmoothness \eqref{eq:avg_meta_smoothness}, i.e.,
+    \begin{enumerate}
+        \item Let $\theta_0 := \mathcal{A}(\mathbf{z}_0)$,
+        $\theta_h := \mathcal{A}(\mathbf{z}_0 + h \cdot \mathbf{v})$, and
+        $\theta_{2h} := \mathcal{A}(\mathbf{z}_0 + 2h \cdot \mathbf{v})$ be the model parameters
+        that result from training with training dataset perturbations
+        $\mathbf{z}_0$, $\mathbf{z}_0 + h \mathbf{v}$,
+        and $\mathbf{z}_0 + 2h \mathbf{v}$, respectively.
+        \item Compute the approximate derivatives
+        \[
+            \Delta_{\mathcal{A}}(\mathbf{z}_0; \mathbf{v}) = \left(\theta_h - \theta_0\right)/h, \quad
+            \Delta_{\mathcal{A}}(\mathbf{z}_0 + h \mathbf{v}; \mathbf{v}) = \left(\theta_{2h} - \theta_h\right)/h.
+        \]
+        \item Compute the weighting vector $\mathbf{d}  = |\theta_{2h} - \theta_0|$, and compute the average metasmoothness \eqref{eq:avg_meta_smoothness}, i.e.,
+        \[
+            \widehat{S}_{h, \mathbf{v}}(\mathcal{A}; z_0) =
+            \textrm{sign}(\Delta_{\mathcal{A}}(\mathbf{z}_0 + h \mathbf{v};\mathbf{v}))^\top
+            \cdot \textrm{diag}\left(\frac{\mathbf{d}}{\|\mathbf{d}\|_1}\right)
+            \cdot \textrm{sign}(\Delta_{\mathcal{A}}(\mathbf{z}_0;\mathbf{v})).
+        \]
+    \end{enumerate}
+\end{enumerate}
+
+
+
+\begin{figure}[h]
+  \centering
+  \newcommand{\plotnumber}{34}
+  \newcommand{\zmin}{0}
+  \newcommand{\zmax}{12.5}
+  \newcommand{\zdist}{3}
+  \input{pgffigs/smoothness_3d/smoothness_3d.tex}
+
+  \vspace{.25cm} %
+
+  \renewcommand{\plotnumber}{811}
+  \renewcommand{\zmin}{-1}
+  \renewcommand{\zmax}{3}
+  \renewcommand{\zdist}{1}
+  \input{pgffigs/smoothness_3d/smoothness_3d.tex}
+  \caption{
+    The effect of metasmoothness on the optimization landscape.
+    Each plot above visualizes the loss landscape of a (deterministic)
+    learning algorithm $\mathcal{A}$, with the $x$- and $y$-axes representing
+    additive perturbations to 1000 examples in the training set
+    and the $z$-axis representing the resulting model's loss
+    on the test example given in the title.
+    In each row, the left plot is a non-smooth algorithm,
+    and the right plot is a smooth algorithm
+    (as per Definition \ref{def:avg_meta_smoothness})
+    evaluated on the same  example.
+    Overall, empirical metasmoothness seems to strongly correlate with
+    qualitative landscape smoothness. See Figure \ref{fig:more_landscapes}
+    for more examples.
+  }
+  \label{fig:smoothness_3d}
+\end{figure}
+
+\paragraph{Metasmooth learning algorithms.}
+We apply the procedure above to estimate the metasmoothness of learning
+algorithms induced by different design choices
+(batch size, network width, BatchNorm placement, gradient scaling),
+and report the results in Figure \ref{fig:smoothness_vs_accuracy}
+(left). On one hand,
+``standard'' learning algorithms (i.e., those designed without metasmoothness in
+mind) are not metasmooth.
+On the other hand, our investigation reveals central factors driving
+metasmoothness.
+In addition to ``standard''
+hyperparameters such as batch size and network width playing a role, we find
+that placing Batch Normalization layers {\em prior} to nonlinearities (instead
+of after) and scaling the final layer output are both crucial to metasmoothness.
+Note that the modifications we consider above are not exhaustive---see
+Appendix \ref{app:poisoning} for the full training setup.
+
+Finally, in Figure~\ref{fig:smoothness_3d}, we plot
+the optimization landscape of both metasmooth (right) and
+non-metasmooth (left) models.
+We find that the landscapes of metasmooth models are much smoother
+and---qualitatively---more straightforward to optimize.
+
+\paragraph{Metasmoothness/performance tradeoffs?}
+Figure \ref{fig:smoothness_vs_accuracy} (left) relates
+metasmoothness to model accuracy for the considered learning algorithms.
+While there is no clear trend, the top-performing
+learning algorithms are not always metasmooth.
+However, the trade-off is not too severe: the most metasmooth
+algorithms still achieve near-optimal accuracy. Furthermore, it is possible
+that with additional searching we could identify even more accurate metasmooth
+models.
+Taken together with our previous experiment, our results suggest that
+jointly searching
+over metasmoothness and model accuracy is a general recipe for designing
+learning algorithms that are both performant and metasmooth.
+Finally, as we discuss in Section \ref{sec:discussion},
+a fruitful avenue for future work may be to
+design metasmooth learning algorithms directly,
+i.e., without relying on stability heuristics or grid search.
+
+
+\paragraph{Does metasmoothness aid downstream optimization?}
+Recall that our motivation for studying metasmoothness is to develop learning
+algorithms that we can optimize the metaparameters of via metagradients (using
+first-order methods). We started with the notion of $\beta$-smoothness from
+optimization theory, and we adapted it to the setting of metagradients by making
+a series of approximations and modifications. The final question we address is:
+does our final notion of metasmoothness actually predict the utility of
+metagradients for optimization? Figure~\ref{fig:smoothness_vs_accuracy}
+(right) demonstrates
+that metasmoothness strongly predicts our ability to optimize the
+metaparameters of a
+given learning algorithm. We use metagradients (computed by
+\replay{}) to gradient
+ascend on validation loss with respect to the metaparameters $\mathbf{z}$, and
+measure the change in model loss.
+
+

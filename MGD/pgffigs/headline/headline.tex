@@ -1,0 +1,51 @@
+\pgfplotsset{
+  compat=1.17,
+  cycle list/Set2,
+}
+\begin{tikzpicture}
+  \begin{groupplot}[
+      group style={
+        group size=3 by 1,
+        horizontal sep=1.5cm,
+      },
+      width=5.5cm, height=5cm,
+      /pgf/bar width=1cm,
+      ybar,
+      xtick=data,
+      enlarge x limits=0.5, %
+      ymin=0,
+      xlabel={Method},
+      xmajorgrids=false,    %
+      ymajorgrids=true,     %
+      grid style={dashed},
+      /pgf/bar shift=0cm,
+    ]
+    \nextgroupplot[
+      title={CLIP Data Selection}, 
+      symbolic x coords={DataComp \#1, MGD},
+      ylabel={$\Delta$ over no filtering (\%)},
+      xtick={DataComp \#1, MGD},
+    ] 
+    \addplot[ybar, fill=gray] coordinates {(DataComp \#1,5)};
+    \addplot[ybar, fill=Set2-A] coordinates {(MGD,9)};
+      
+    \nextgroupplot[
+      title={IFT Data Selection}, 
+      symbolic x coords={LESS, MGD},
+      xtick={LESS, MGD},
+      ylabel={$\Delta$ over full dataset (\%)},
+    ] 
+    \addplot[ybar, fill=gray] coordinates {(LESS,0.25)};
+    \addplot[ybar, fill=Set2-A] coordinates {(MGD,1.4)};
+      
+    \nextgroupplot[
+      title={Data Poisoning}, 
+      symbolic x coords={GC, MGD},
+      xtick={GC, MGD},
+      ylabel={Test accuracy drop (\%)},
+    ] 
+    \addplot[ybar, fill=gray] coordinates {(GC,0.8)};
+    \addplot[ybar, fill=Set2-A] coordinates {(MGD,15.4)};
+      
+  \end{groupplot}
+\end{tikzpicture}

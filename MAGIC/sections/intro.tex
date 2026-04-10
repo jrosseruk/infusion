@@ -1,0 +1,143 @@
+A fundamental problem when building machine learning systems is to
+predict {\em counterfactuals} about model behavior. For example, scaling laws
+\citep{kaplan2020scaling,hashimoto2021model,muennighoff2023scaling}
+aim to predict the performance of systems trained with more data and
+more compute than
+is currently available; interpretability techniques
+\citep{kim2018interpretability} predict how models behave under counterfactual
+inputs.
+
+Analogously, in this work we study {\em predictive data attribution}
+(or {\em datamodeling} \citep{ilyas2022datamodels}),
+where the goal is to predict how a model would behave if it
+had been trained on a different dataset.
+This well-studied problem encompasses, e.g., estimating the effect
+(on the resulting trained model's predictions) of modifying a training example
+\citep{koh2017understanding}, removing a group of
+training examples \citep{koh2019accuracy,bae2022if,park2023trak}, or
+adding entire training data sources~\citep{ley2024generalized}.
+
+Predictive data attribution in large-scale settings is challenging: it
+requires simulating training a model on a different
+dataset without actually training
+\citep{guu2023simfluence,ilyas2024data}.
+In ``classical'' settings---when learning corresponds to minimizing a
+convex loss---statistical tools
+like the influence function~\citep{hampel1947influence}
+allow us to accurately and
+efficiently estimate how different training data choices change trained model
+predictions~\citep{rad2018scalable,koh2019accuracy,giordano2019swiss}.
+However, in the non-convex settings that are ubiquitous in natural
+domains like language/vision, current methods
+are less effective. Indeed, the best existing methods produce
+estimates that typically (a)
+only {\em moderately correlate} with the ground
+truth~\citep{basu2021influence,bae2022if,park2023trak} and (b)
+incur large absolute error~\citep{bae2022if}.
+
+
+\subsection{Contributions}
+In this work, we make progress towards solving the
+well-studied problem of estimating how a model's
+predictions would change under different
+(counterfactual) deletions of training data
+\citep{koh2017understanding,bae2022if,schioppa2022scaling,park2023trak,bae2024training}.
+We make two main contributions:
+
+\begin{figure}[ht]
+  \centering
+  \newcommand{\dataset}{cifar}
+  \newcommand{\exampleid}{0}
+  \newcommand{\scatteropacity}{0.5}
+  \newcommand{\setting}{ResNet-9 on CIFAR-10}
+  \newcommand{\fracone}{1}
+  \newcommand{\frachtwo}{5}
+  \newcommand{\datacsvscatterone}{plots/scatter/scatter_results_cifar/ind_0_dropfrac_0.01.csv}
+  \newcommand{\datacsvscattertwo}{plots/scatter/scatter_results_cifar/ind_0_dropfrac_0.05.csv}
+  \input{plots/headline2.tex}
+  \caption{ \method{} nearly perfectly predicts the effect of training data
+    removal. In contrast to the best baselines \citep{park2023trak,grosse2023studying}, 
+    \method{} produces estimates
+    that both (a) highly correlate with the ground truth effect and (b) are
+    well-scaled. {\bf Right:} we plot the predicted loss (from \method{} and 
+    the two baselines) against the true loss for a
+    randomly chosen test point, each point a training data subset with a random
+    1\% of samples removed. For \method{} we plot the predicted loss directly 
+    since it is well-scaled; for the baselines, we first rescale the predictions 
+    to match the variance of the ground-truth losses.
+    {\bf Left:} The average (taken across test examples) 
+    Spearman correlation between predicted and true model losses (also known as 
+    the LDS \citep{ilyas2022datamodels,park2023trak}, see Section~\ref{sec:single_model_data_attribution}).}
+  \label{fig:headline}
+\end{figure}
+
+\paragraph{A new perspective (single-model data
+attribution).} The inherent randomness of large-scale training makes
+attributing specific model predictions to training data
+conceptually
+challenging \citep{bae2022if,ilyas2022datamodels,nguyen2023bayesian}. After all,
+if training on the same data can lead to different models, then
+we {\em cannot} predict the variation between these models as a
+function of the dataset.
+As a result, prior work can only predict how a {\em learning algorithm}
+would behave ({\em on average}) if trained on a different dataset,
+but not how a {\em specific} model would behave if the training data were
+different.
+
+Motivated by this state of affairs,
+we introduce a setting called ``single-model'' data attribution.
+The goal in this setting is still to predict the behavior of a model under
+changes to the training data---the twist is that
+we aim to predict how {\em this specific model} would have behaved
+under different training data, rather than how a newly initialized
+and trained model would have behaved
+under different training data.
+This subtle change means that: (a) in the single-model setting,
+it {\em is} possible to perfectly predict model behavior as a function
+of the training data, and (b)
+these predictions correspond to how a given ``single model''
+would respond to changes in the training data (motivating the name
+of the setting), rather than a given learning algorithm.
+
+
+
+\paragraph{A new data attribution method (\method{}).}
+We present \method{}
+(\textbf{M}etagradient-based
+  \textbf{A}ttribution via
+  \textbf{G}round-truth
+  \textbf{I}nfluence
+\textbf{C}omputation),
+a state-of-the-art
+data attribution method.
+Our method leverages recent advances in large-scale metagradient calculation
+\citep{engstrom2025optimizing} to \textit{exactly} calculate the
+influence function \citep{hampel1947influence} for large-scale learning
+algorithms.
+\method{} accurately estimates how
+model predictions respond to random training data deletions---substantially
+outperforming existing methods---\textit{even in our more challenging
+single-model setting}.
+For example (see Figure~\ref{fig:headline}),
+\begin{itemize}
+  \item When dropping different random 1\% subsets from the training set of a
+    ResNet-9 model trained on CIFAR-10, \method{} almost exactly predicts
+    ground-truth model losses ($\rho = 0.96$) while existing
+    methods' predictions are only weakly correlated ($\rho = 0.25$).
+  \item When dropping different random 1\% subsets
+    from the training set of a Gemma-2B model trained on instruction tuning
+    data, \method{} nearly exactly predicts ground-truth model test losses
+    ($\rho = 0.97$) while existing methods perform no better
+    than random guessing.
+\end{itemize}
+
+\noindent{}Together, the single-model data attribution setting and our new
+primitive, \method{}, enable nearly optimally estimating the effect of removing
+and adding training data on trained model predictions in modern (deep learning) 
+settings, including language modeling and supervised vision tasks.
+
+
+
+
+
+

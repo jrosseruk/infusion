@@ -1,0 +1,116 @@
+\pgfplotsset{colormap/Set2}
+\pgfplotsset{grid style={dashed,gray}}
+
+\begin{tikzpicture}
+    \begin{axis}[
+      xlabel={Accuracy (\%)},
+      ylabel={Smoothness},
+      legend style={at={(1.1,1)}, anchor=north west, inner sep={6pt}},
+      legend cell align={left},
+      legend columns={3},
+      height={6.8cm},
+      width={6cm},
+      colormap name={Set2},
+      grid={both}
+    ]
+
+    \pgfkeys{
+        /markarray/0/.initial=*,
+        /markarray/1/.initial=triangle*,
+        /markarray/2/.initial=square*,
+        /markarray/3/.initial=o,
+        /markarray/4/.initial=square*,
+        /markarray/5/.initial=square
+    } 
+    \addplot [
+      scatter,
+      only marks,
+      forget plot,
+      visualization depends on=\thisrow{bs} \as \bsize,
+      visualization depends on=\thisrow{final_scale} \as \fscale,
+      visualization depends on=\thisrow{batchnorm_before_act} \as \bnact,
+      visualization depends on=\thisrow{width_multiplier} \as \width,
+      scatter/@pre marker code/.code={
+        \pgfmathparse{\width == 1.0 ? 0 : (\width == 1.5 ? 1 : 2)}
+        \edef\currentmark{\pgfkeysvalueof{/markarray/\pgfmathresult}}
+        \pgfmathsetmacro{\mycolor}{\fscale == 0.125 ? 0 : (\fscale == 0.5 ? 128 : 255)}
+        \pgfmathsetmacro{\myopacity}{\bnact == 0 ? 0.2 : 1}
+        \pgfplotsset{mark=\currentmark}
+        \def\markopts{mark size={(\bsize == 250 ? 2 : (\bsize == 500 ? 3 : 4))},%
+        color of colormap=\mycolor,
+        draw=black,
+        opacity=\myopacity}
+        \expandafter\scope\expandafter[\markopts]
+      },
+      scatter/@post marker code/.code={
+        \endscope
+      }, 
+    ]
+    table[
+      x expr={\thisrow{avg_acc}*100},
+      y=smoothness,
+      col sep=comma,
+    ]{pgffigs/smoothness_vs_acc/smoothness_vs_acc.csv};
+    
+    \addlegendimage{only marks, mark=none, draw=none, mark options={fill = white, draw = white}}%
+    \addlegendentry{\makebox[0pt][l]{\textbf{Final scale}}}
+    \addlegendimage{empty legend}
+    \addlegendentry{}
+    \addlegendimage{empty legend}
+    \addlegendentry{}
+    \addlegendimage{only marks, mark=*, mark options={color of colormap=0}}%
+    \addlegendentry{0.125}
+    \addlegendimage{only marks, mark=*, mark options={color of colormap=128}}%
+    \addlegendentry{0.5}
+    \addlegendimage{only marks, mark=*, mark options={color of colormap=255}}%
+    \addlegendentry{1.0}
+
+    \addlegendimage{only marks, mark=none, draw=none, mark options={fill = white, draw = white}}%
+    \addlegendentry{$\phantom{\bigg|}$\makebox[0pt][l]{\textbf{Batch size}}}
+    \addlegendimage{empty legend}
+    \addlegendentry{}
+    \addlegendimage{empty legend}
+    \addlegendentry{}
+    \addlegendimage{only marks, mark=*, mark size=2, mark options={fill=black}}%
+    \addlegendentry{250}
+    \addlegendimage{only marks, mark=*, mark size=3, mark options={fill=black}}%
+    \addlegendentry{500}
+    \addlegendimage{only marks, mark=*, mark size=4, mark options={fill=black}}%
+    \addlegendentry{1000}
+
+    \addlegendimage{only marks, mark=none, draw=none, mark options={fill = white, draw = white}}%
+    \addlegendentry{$\phantom{\bigg|}$\makebox[0pt][l]{\textbf{Width}}}
+    \addlegendimage{empty legend}
+    \addlegendentry{}
+    \addlegendimage{empty legend}
+    \addlegendentry{}
+    \addlegendimage{only marks, mark=*, mark size=3, mark options={fill=black}}%
+    \addlegendentry{1.0}
+    \addlegendimage{only marks, mark=triangle*, mark size=3, mark options={fill=black}}%
+    \addlegendentry{1.5}
+    \addlegendimage{only marks, mark=square*, mark size=3, mark options={fill=black}}%
+    \addlegendentry{2.0}
+
+    \addlegendimage{only marks, mark=none, draw=none, mark options={fill = white, draw = white}}%
+    \addlegendentry{$\phantom{\bigg|}$\makebox[0pt][l]{\textbf{BN Placement}}}
+    \addlegendimage{empty legend}
+    \addlegendentry{}
+    \addlegendimage{empty legend}
+    \addlegendentry{}
+
+    \addlegendimage{only marks, mark=*, mark size=3, opacity=1, mark options={fill=black}}%
+    \addlegendentry{\makebox[0pt][l]{Before activation}}
+    \addlegendimage{empty legend}
+    \addlegendentry{}
+    \addlegendimage{empty legend}
+    \addlegendentry{}
+
+    \addlegendimage{only marks, mark=*, mark size=3, opacity=0.2, mark options={fill=black}}%
+    \addlegendentry{\makebox[0pt][l]{After activation}}
+    \addlegendimage{empty legend}
+    \addlegendentry{}
+    \addlegendimage{empty legend}
+    \addlegendentry{}
+
+    \end{axis}
+\end{tikzpicture}

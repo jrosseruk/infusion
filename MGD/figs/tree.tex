@@ -1,0 +1,54 @@
+\begin{forest}
+    for tree={
+      fit=band,
+      minimum size=2.2em,
+      s sep=0.46em,
+    rectangle,
+    fit=band,
+    draw,
+    calign primary child=1,
+    calign=child edge
+    },
+    [{$0$}, simple cylinder, fill=gray!20, name=el1 %
+      [{$0$}, simple cylinder, fill=gray!20
+        [$\cdots$,circle,draw=none
+          [{$0$}
+            [{$0$}]
+            [{$1$}]]
+          [$\cdots$,circle,draw=none
+            [$\cdots$,circle,draw=none]]]
+        [$\cdots$,circle,draw=none
+          [$\frac{n}{4}$
+            [$\frac{n}{4}$] [$\frac{n}{4}+ 1$]]
+          [$\cdots$,circle,draw=none
+            [$\cdots$,circle,draw=none]]]]
+      [$\frac{n}{2}$, simple cylinder, fill=gray!20, name=el2
+        [$\cdots$,circle,draw=none,
+          [$\frac{n}{2}$
+            [$\frac{n}{2}$]
+            [$\frac{n}{2}+ 1$]]
+          [$\cdots$,circle,draw=none
+            [$\cdots$,circle,draw=none]]]
+        [$\cdots$,circle,draw=none, name=el3
+          [$\frac{3n}{4}$, simple cylinder, fill=gray!20,name=el8
+            [$\frac{3n}{4}$, simple cylinder, fill=gray!20]
+            [$\frac{3n}{4} \footnotesize{+1}$, simple cylinder, minimum height=1em, minimum size=2em, text height=.75em, text depth=3.4pt, fill=gray!20,name=el9]]
+          [$\cdots$,circle,draw=none,name=el35
+            [$\cdots$,circle,draw=none,name=el5]
+            [{$n\shortminus{}1$},name=el4]]]]]
+    \begin{scope}[>=Triangle]
+        \path [draw, <->] (current bounding box.south west) +(-20pt,0) coordinate (c) -- (c |- current bounding box.north) node [pos=.5, fill=white] {$\log_2(n)$};
+    \end{scope}
+    \draw[->,thick,color=blue] (el1) to[out=40,in=110] node [pos=0.40, fill=white, yshift=-4pt] {Traversal order} (el2); %
+    \draw[->,thick,color=blue] (el2) to[out=40,in=110] (el3);
+    \draw[->,thick,color=blue] (el3) to[out=40,in=110] (el35);
+    \draw[->,thick,color=blue] (el35) to[out=east,in=north] (el4);
+    \draw[->,thick,color=blue] (el4) to[out=south,in=south] (el5);
+    \draw[->,thick,color=blue] (el5) to[out=north west,in=south west] (el35);
+    \draw[->,thick,color=blue] (el35) to[out=west,in=south east] (el3);
+    \draw[->,thick,color=blue] (el3) to[out=292,in=70] (el8);
+    \draw[->,thick,color=blue] (el8) to[out=east,in=north] (el9);
+    \begin{scope}[>=Triangle]
+    \path [draw, <->] (current bounding box.south west) +(43.75pt,-1pt) coordinate (c) -- (current bounding box.south east) node [pos=.5, fill=white] {$n$ states}; %
+    \end{scope}
+    \end{forest}

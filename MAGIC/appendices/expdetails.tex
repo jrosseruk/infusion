@@ -1,0 +1,85 @@
+In this section, we provide additional details on the experimental setup used in
+the main paper, including the training details of the models,
+and the datasets used.
+
+\paragraph{ResNet-9 on CIFAR-10.} We use the ResNet-9 architecture from
+\citep{jordan202494}, with the hyperparameters given in
+Table~\ref{tab:resnet9_cifar10_hyperparams}. To give concrete details: the
+training set $S$ comprises $50,000$ CIFAR-10 training samples, the
+learning algorithm
+$\mathcal{A}$ is standard supervised training, and we consider 50 measurement
+functions $\phi_i$ corresponding to loss on 50 different CIFAR-10 test samples.
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{ll}
+    \toprule
+    Hyperparameter & Value \\
+    \midrule
+    Learning rate & 1.2 \\
+    Weight decay & 0.001 \\
+    Bias scale & 8.0 \\
+    Batch size & 1000 \\
+    Epochs & 12 \\
+    Final layer scale & 0.04 \\
+    Momentum & 0.875 \\
+    Pooling type & Log-sum-exp \\
+    Pooling $\varepsilon$ & 0.1 \\
+    Width multiplier & 2.5 \\
+    LR schedule & One-cycle Linear \\
+    LR start multiplier & 0.07 \\
+    LR end multiplier & 0.2 \\
+    LR peak time & 0.5 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Hyperparameters for ResNet-9 on CIFAR-10.}
+  \label{tab:resnet9_cifar10_hyperparams}
+\end{table}
+
+\paragraph{Gemma-2B LoRA on IFT Data.} We use the variant of
+LESS~\citep{xia2024less} from \citet{engstrom2025optimizing}. In particular, the
+training dataset consists of the four instruction fine-tuning sets seen in
+Table~\ref{tab:ift_training_dataset} as in LESS. The total number of points is
+around $300,000$ and is exactly four combined IFT datasets (Flan
+  V2~\citep{longpre2023flan}, CoT~\citep{wei2022chain},
+  DOLLY~\citep{conover2023free}, and Open Assistant 1
+\citep{kopf2024openassistant}). We test on a randomly chosen (task balanced)
+subset of of MMLU comprising 32 test samples. We use 4-shot in-context learning
+for these samples. We adapt a LoRA to a Gemma-2B model (the pretraining-only
+Gemma-2B model~\citep{team2024gemma}) using the LoRA configuration from
+\citet{xia2024less}. For model training, we use the same setup as
+\citet{engstrom2025optimizing}, except with $\epsilon_\textrm{root}=10^{-6}$. In
+particular, we train with ADAM ($\beta_1=0.95, \beta_2=0.975$, decoupled weight
+decay as $10^{-5}$) and a one-cycle linear schedule starting at $10^{-6}$ of the
+maximum learning rate, reaching the peak over 25\% of training, then ending at
+$0.1$ of the maximum learning rate ($0.0004$). We insert a positive
+$\epsilon_\textrm{root}$ into the inverse square root term in the ADAM update to
+prevent metagradient (and to a lesser extent update) blowup.
+
+\paragraph{GPT-2 fine-tuning on Wikitext.} We optimize a pre-trained
+GPT2~\citep{radford2019language} model on Wikitext~\citep{foundation2022english}
+using causal language modeling. We split the Wikitext samples into size 512
+context length chunks and into train and test splits, with 256 samples in the
+test split and 4608 samples in the train split. We attribute on the test split,
+and use 4 epochs of the train split during training. We use the same ADAM
+optimizer setup above except that we set $\epsilon_\textrm{root}=10^{-8}$, max
+learning rate to $0.0008$, and do not anneal ADAM $\epsilon_{\mathrm{root}}$.
+
+\begin{table}[h]
+  \small
+  \centering
+  \caption{Details of IFT training datasets.}
+  \label{tab:ift_training_dataset}
+  \begin{tabular}{l l l c c}
+    \toprule
+    Dataset & \# Instance & Sourced from & Prompt Len. & Complet. Len. \\
+    \midrule
+    FLAN V2 & 100,000 & NLP datasets and human-written instructions &
+    355.7 & 31.2 \\
+    CoT & 100,000 & NLP datasets and human-written CoTs & 266 & 53.2 \\
+    Dolly & 15,011 & Human-written from scratch & 118.1 & 91.3 \\
+    Open Ast. 1 & 55,668 & Human-written from scratch & 34.8 & 212.5 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+

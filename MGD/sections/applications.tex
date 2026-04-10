@@ -1,0 +1,305 @@
+In this section, apply metagradients to three problems in
+machine learning: selecting training data, poisoning training data, and
+searching for hyperparameters. In each setting we follow the same recipe:
+we frame the task as an optimization problem, modify the learning algorithm
+of interest to be \textit{smooth}, then solve by first-order
+optimizing with meta-gradients---which we refer to, in a catch-all manner across
+algorithms, as metagradient descent (MGD). In particular:
+we substantially improve on existing dataset selection methods
+(Section \ref{sec:datacomp},
+Section \ref{sec:less}), perform the first effective
+accuracy-degrading data poisoning attack
+(Section \ref{sec:poisoning}), and discover one-cycle learning rate
+schedules with MGD
+(Section \ref{sec:lrsched}).
+
+\subsection{Selecting multimodal training data}
+\label{sec:datacomp}
+\input{sections/applications_clip.tex}
+
+\subsection{Selecting instruction-tuning data}
+\label{sec:less}
+In our second application, we select training data for instruction fine-tuning
+(IFT) using the same MGD-based method detailed in Algorithm~\ref{alg:depsing} of
+Section~\ref{sec:datacomp}. As with multimodal data, training on the ``right''
+post-training data (such as the ``right'' IFT data) can greatly impact
+deployment-time model
+performance~\citep{liu2024deepseek,dubey2024llama,taori2023stanford}. MGD
+improves over baselines at choosing IFT data for
+MMLU~\citep{hendrycks2021measuring}, a general knowledge task, and
+BBH~\citep{suzgun2022challenging}, a reasoning/chain-of-thought task.
+
+To overview this section: we start by detailing the setting, then describe the
+specifics of our MGD instantiation before concluding with results.
+
+\begin{figure}[t]
+  \centering
+  \begin{subfigure}[t]{0.49\textwidth}
+    \centering
+    \raisebox{-0.605\height}{ \input{pgffigs/less_result/less_result.tex} }
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[t]{0.5\textwidth}
+    \centering
+
+    \input{tables/replay_vs_less_table.tex}
+  \end{subfigure}
+  \caption{MGD dataset selection outperforms baselines. Comparing to training
+    on all the data: it achieves over double the margin of improvement of LESS
+    on MMLU, and improves by $+1.5\%$ on BBH (where LESS does not improve at
+  all). The $\Delta$ column denotes improvement over not filtering.}
+  \label{fig:ift_dss}
+\end{figure}
+
+\paragraph{Setting.}
+We adopt the setting of LESS~\citep{xia2024less}. Here, the goal is to select a
+training data subset from four combined IFT datasets (Flan
+  V2~\citep{longpre2023flan}, CoT~\citep{wei2022chain},
+  DOLLY~\citep{conover2023free}, and Open Assistant 1
+\citep{kopf2024openassistant}) to maximize accuracy on a given target task. We
+consider two target tasks from LESS: MMLU (which comprises multiple choice
+questions spanning a variety of disciplines) and BBH (a 23 task subset of
+BIG-Bench~\citep{srivastava2022beyond}).
+In this setup, the data selector can access samples from
+each task built from the in-context learning prompts.
+Following \citet{xia2024less}, we
+fine-tune a $128$-width LoRA~\citep{huang2020dynamics} (in our work, on
+Gemma-2B~\citep{team2024gemma}). See Appendix~\ref{app:less} for full details on
+the tasks and learning algorithm.
+
+\paragraph{Method.}
+We split up the available task samples into two sets---a ``target'' set and a
+``validation'' set---then select data with MGD (via Algorithm~\ref{alg:depsing})
+by minimizing causal language modeling loss on the ``target'' set of samples.
+We select hyperparameters like step size and number of SGD iterations with the
+validation set; see Appendix~\ref{app:less} for more details.
+
+\paragraph{Results.}
+Comparing with two baselines---training on \textit{all} the data and training
+with data selected with LESS~\citep{xia2024less}---MGD yields strictly better
+training dataset selections for each target task (cf. Figure~\ref{fig:ift_dss}).
+MGD improves most on BBH, a reasoning task, compared to the best
+baseline (+1.5\% accuracy). On MMLU, a knowledge-based task, we
+outperform baselines by slightly less compared to the best baseline (+0.8\%);
+one explanation is that selecting IFT data lends more control over reasoning
+than over intrinsic knowledge available in the LM.
+
+Beyond raw accuracy, we inspect losses across each step of the optimization
+process. Overall, our method improves validation loss over MGD steps
+(cf. Appendix Figures~\ref{fig:bbh_mmlu_over_time}), but also
+exhibits signs of overfitting. Given intuition from
+overparameterized learning, we might expect this behavior: we optimize a total
+of 270,679 ``weights''---each corresponding to a count for a datapoint---to
+minimize loss on only a handful of test samples (cf.
+Table~\ref{tab:datasets}).
+
+\subsection{Accuracy-degrading (Huber) data poisoning}
+\label{sec:poisoning}
+The goal of an accuracy-degrading {\em data poisoning} attack is to degrade the
+performance of a machine learning model by corrupting a small fraction of its
+training data.
+Here, the considered threat model is as follows. The attacker is given
+a training set $\mathbf{X} = \{x_1, \ldots, x_n\}$
+drawn from a distribution $P$,
+and a function $\theta(\cdot)$ mapping training data to model
+parameters (representing the learning algorithm used by the victim).
+The attacker's goal is to return a new training set $\mathbf{X}'$ that differs
+from $\mathbf{X}$ in at most $\varepsilon\cdot n$ datapoints while
+inducing model
+parameters $\theta(\mathbf{X}')$ that perform as poorly as possible on a freshly
+drawn test set $T$ from $P$.
+
+Formally, the adversary aims to solve the following optimization problem:
+\begin{equation}
+  \label{eq:poisoning}
+  \arg\max_{\widetilde{x}_1, \ldots, \widetilde{x}_{n_p}}
+  \mathbb{E}_{x \sim P}[\ell(x; \theta(\mathbf{X}'))],
+\end{equation}
+where $\mathbf{X}' = \{\widetilde{x}_1, \ldots, \widetilde{x}_{n_p},
+x_{n_p+1}, \ldots, x_n\}$ and $n_p = \lfloor \varepsilon n \rfloor$.
+Note that our goal is to degrade the {\em overall} model performance
+on a test set $\mathbf{X}_{test}$ drawn from $P$ (in particular,
+the test set $\mathbf{X}_{test}$ is {\em unknown} to the adversary).
+In this way, this setting resembles
+the Huber contamination model in statistics \citep{huber1964robust},
+and is strictly more challenging than the usual data poisoning
+settings in deep learning (e.g., backdoor attacks
+  \citep{gu2017badnets} or attacks that target specific test examples
+\citep{koh2017understanding}).
+
+For large-scale machine learning models, finding strong adversaries has proven
+challenging---standard loss-minimizing learning algorithms seem quite robust to
+maliciously-inserted data~\citep{lu2023exploring}.
+In fact, the first non-trivial accuracy degradation data poisoning attacks on
+deep models were pioneered by \citet{lu2022indiscriminate} and later improved 
+upon by the same set of authors \citep{lu2023exploring}.
+Broadly speaking, even constructing attacks that degrade the overall performance of a
+learning algorithm by more than the adversarial budget $\varepsilon$
+has proven challenging.
+
+\subsubsection{Setup}
+We observe that \eqref{eq:poisoning} is a continuous optimization
+problem to which we can directly apply our metagradient framework,
+approximating the expectation over $P$ by a finite-sample average
+over a validation set $\mathbf{X}_{val}$.
+In particular, given a (randomly shuffled) training set $\mathbf{X}$
+and validation set $\mathbf{X}_{val}$, we set up the
+following metaparameter optimization problem (see
+Section~\ref{subsec:meta_gradient}):
+\begin{itemize}
+  \item[(a)] the metaparameter $\mathbf{z} \in \mathcal{X}^{n_p}$ is
+    a tensor of $n_p = \lfloor \varepsilon n \rfloor$
+    poisoned samples;
+  \item[(b)] the algorithm $\mathcal{A}$ maps metaparameters
+    $\mathbf{z}$ to a trained model $\mathcal{A}(\mathbf{z})$ by
+    replacing the first\footnote{In principle,
+      the adversary can also decide {\em which} samples to poison, but
+    for simplicity we consider this ``fixed'' case.} $n_p$ samples in
+    $\mathbf{X}$ with the samples in $\mathbf{z}$
+    and then training on the resulting dataset;
+  \item[(c)] the output function $\phi$ evaluates average loss on the
+    validation set $\mathbf{X}_{val}$.
+\end{itemize}
+
+\subsubsection{Algorithm}
+To apply our first-order methods to this problem, we start by
+initializing the poisoned data
+to be exactly the first $n_p$ samples in $\mathbf{X}$,
+\(
+  \mathbf{z}^{(0)} := \{\widetilde{x}_i^{(0)} = x_i: i \in [n_p]\}.
+\)
+Then, for $t = 1, \ldots, T$, we sample a minibatch
+$\mathbf{X}_{val}^{(t)}$ from $\mathbf{X}_{val}$
+and use \replay{} to compute the metagradient
+\[
+  \mathbf{g}_t = \frac{d}{d\mathbf{z}} \left(
+    \sum_{x \in \mathbf{X}_{val}^{(t)}} \ell(x; \mathcal{A}(\mathbf{z}^{(t-1)}))
+  \right),
+\]
+and update the poisoned data using (projected) gradient ascent:
+\[
+  \mathbf{z}^{(t)} = \Pi_{\mathcal{X}}\left(
+    \mathbf{z}^{(t-1)} + \eta\cdot \text{sign}(\mathbf{g}_t)
+  \right),
+\]
+where $\Pi_{\mathcal{X}}$ is the projection operator onto the sample
+space $\mathcal{X}$.
+(For example, when $\mathcal{X}$ is the space of image-label pairs,
+  $\Pi_{\mathcal{X}}$ clips images' pixel values to $[0, 1]$
+and ensures labels are valid probability distributions.)
+
+\begin{figure}[tp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/cifar10_poisons.png}
+  \caption{Examples of poisoned images from Section \ref{sec:poisoning}.}
+  \label{fig:poisons}
+\end{figure}
+
+\begin{figure}[tp]
+  \centering
+  \begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \raisebox{-\height}{\input{pgffigs/cifar_poisoning/cifar_poisoning.tex}}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[t]{0.51\textwidth}
+    \centering
+    \centering
+    \begin{tabular}[t]{@{}lcc@{}}\toprule
+      {\bf Model} & {\bf Acc.} & $\Delta$ \\
+      \midrule
+      \tikz[baseline=-0.5ex] {\draw [dashed, color=pgfcolor3, very
+      thick] (0,0) -- (0.6,0)} Original model & 92.0\% & $-$ \\
+      \tikz[baseline=-0.5ex] {\draw [dashed, color=pgfcolor1, very
+      thick] (0,0) -- (0.6,0)} GradCancel \citep{lu2023exploring} &
+      91.2\% & \textcolor{mygreen}{$-$0.80\%} \\
+      \tikz[baseline=-0.5ex] {\draw [color=pgfcolor0, very thick]
+      (0,0) -- (0.6,0)} \textbf{MGD-DP (ours)} & \textbf{78.1\%} &
+      \boldmath{\textbf{\textcolor{mygreen}{$-$13.9\%}}} \\ \midrule
+      {\color{darkgray!75} 1-layer NN (for reference)
+      \citep{coates2011analysis}} &
+      {\color{darkgray!75} 83.3\%} & \textcolor{mygreen}{$-8.7$\%} \\
+      \bottomrule
+    \end{tabular}
+    \label{tab:poisoning}
+  \end{subfigure}
+  \caption{
+    For each iteration of MGD ($x$-axis),
+    we train a new model from random
+    initialization on a randomly shuffled training set with
+    the current iterate of poisoned data injected.
+    We evaluate the test accuracy ($y$-axis), and use \replay{} to compute
+    the metagradient.
+    MGD outperforms the best known attack \citep{lu2023exploring}
+    by an order of magnitude and
+    (for reference) results in a model that has the same accuracy as a
+    single-layer neural network trained on random image features
+    \citep{coates2011analysis}.
+  }
+  \label{fig:poisoning-results}
+\end{figure}
+
+
+\subsubsection{Evaluation}
+We use the CIFAR-10 dataset
+which consists of 60,000 total images each labeled as one of 10 classes.
+We partition the data into 40,000 training examples, 10,000 validation examples,
+and 10,000 test examples.
+We consider a simple 12-epoch CIFAR-10 training procedure,
+which reaches 92.4\% accuracy on the CIFAR-10 test set when applied to the
+40,000 training examples. See Appendix
+\ref{app:poisoning} for training hyperparameters.
+
+As described above,
+we allow the adversary to modify (in-place) a fixed, $\varepsilon$-fraction of
+the training data (in our case, 2.5\%)
+subject to the constraint that the poisoned images
+still lay in the valid (normalized) image range of $[0, 1]$.
+We compare our approach---direct optimization of the data poisoning
+objective using metagradients---to the state-of-the-art ``Gradient Cancelling''
+(GradCancel) method of \citet{lu2023exploring}. In short, GradCancel
+is a two-step method which
+first finds a poorly performing model,
+then finds poisoned data that induces this model as a minimizer of
+the training loss.
+We present the full method in Appendix \ref{app:poisoning}.
+
+\paragraph{Results.} We find that metagradients enable state-of-the-art
+data poisoning attacks, degrading accuracy by 14\%.
+In particular, when allowed to corrupt 1000 of the 40,000 training
+samples (2.5\%), our method reduces test set accuracy to 78\%---for reference,
+the accuracy of a single-layer neural networked trained on the unmodified
+CIFAR-10 training set is 83\%.
+The strongest existing data poisoning attack,
+GradCancel, only reduces test set accuracy by less than 1\%.\footnote{
+  \citet{lu2023exploring} report a larger drop; the discrepancy
+  is due to our constraint that poisoned data are valid bounded RGB images.
+}
+In Figure \ref{fig:poisons}, we visualize the
+poisoned images and labels found by our method.
+In Figure~\ref{fig:poisoning-results},
+we visualize the minibatch loss at each step of the
+optimization process.
+
+\begin{remark}[Poisoning non-smooth learning algorithms]
+  Recall that to apply metagradient descent,
+  we alter the learning algorithm $\mathcal{A}$
+  to be metasmooth (see Section \ref{sec:smoothness}).
+  This involves making modifications such as switching out
+  max pooling layers for average pooling layers,
+  moving batch normalization layers before activations,
+  and scaling down the last layer's output by a factor of 10.
+  It is natural to ask: how much does the efficacy of our method
+  depend on this smoothness?
+  After all, in practice the adversary cannot control the learning algorithm.
+  To answer this question, we take the poison samples generated by
+  MGD and insert them into the training set of a corresponding
+  \smash{\underline{standard}} (i.e., non-metasmooth) learning algorithm.
+  We find that our method still
+  significantly degrades the performance of the model,
+  from $92.8\%$ to $82.6\%$ (a drop of $10.2\%$).
+\end{remark}
+
+\subsection{Finding a learning rate schedule}
+\label{sec:lrsched}
+\input{sections/lr_optimization}

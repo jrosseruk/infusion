@@ -1,0 +1,133 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+
+\usepackage{mathpazo}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage[T1]{fontenc}
+\usepackage{mathtools}
+\usepackage{mdframed}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{comment}
+\usepackage{nicefrac}
+\usepackage{mathtools} %
+
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepgfplotslibrary{groupplots,colorbrewer}
+
+
+\usepackage[colorinlistoftodos,textsize=tiny,textwidth=2.1cm,shadow,loadshadowlibrary]{todonotes}
+\newcommand{\ilyas}[1]{\todo{ILYAS: #1}}
+\newcommand{\logan}[1]{\todo[linecolor=orange,backgroundcolor=yellow,bordercolor=black]{ENGSTROM:
+#1}}
+\newcommand{\loganinline}[1]{\todo[inline,size=\normalfont,backgroundcolor=yellow]{logan:
+#1 }}
+\newcommand{\benchen}[1]{\todo[linecolor=pink,backgroundcolor=pink,bordercolor=black]{BENCHEN
+#1}}
+
+\usepackage[backend=biber, style=numeric, natbib=true,
+style=alphabetic,minalphanames=3,maxbibnames=20]{biblatex}
+\addbibresource{bibliography/fmt_bib.bib} %
+
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  filecolor=magenta,
+  urlcolor=cyan,
+}
+
+\newcommand{\method}{\textsc{Magic}}
+\newcommand{\trainset}{S} %
+\newcommand{\alg}{\mathcal{A}} %
+\newcommand{\wvec}{\mathbf{w}}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{example}{Example}
+\newtheorem{infdef}{Informal Definition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{definition}[theorem]{Definition}
+\newcommand{\st}[1]{\mathbf{s}_{#1}}
+\newcommand{\ind}[2]{\mathbf{1}^{#1}_{#2}}
+\newcommand{\indvec}[1]{\mathbf{1}\left(#1\right)}
+\newcommand{\replay}{\textsc{Replay}}
+\newcommand{\reweight}{\alg{}}
+\newcommand{\ctsf}{\bar{f}}
+
+\newmdtheoremenv{boxdef}{Definition}
+
+\title{\method{}: Near-Optimal Data Attribution for Deep Learning}
+\author{Andrew Ilyas\footnote{Equal contribution; Work done while at MIT} \\
+  Stanford Statistics \\ 
+  \texttt{ailyas@mit.edu} \and
+  Logan Engstrom\footnotemark[1] \\
+  MIT EECS \\
+  \texttt{engstrom@mit.edu}
+}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+  The goal of predictive data attribution is to estimate how adding or removing
+  a given set of training datapoints will affect model predictions.
+  In convex settings, this goal is straightforward (i.e., via the infinitesimal
+  jackknife).
+  In large-scale (non-convex) settings, however, existing methods are far less
+  successful---current methods' estimates often only weakly
+  correlate with the ground truth.
+  In this work, we present a new data attribution
+  method (\method{}) that combines both classical methods and recent advances in
+  metadifferentiation~\citep{engstrom2025optimizing} to nearly optimally
+  estimate the effect of adding or removing training data on model predictions.
+\end{abstract}
+
+\section{Introduction}
+\input{sections/intro}
+
+\input{sections/data_attribution}
+
+\input{sections/method.tex}
+\input{sections/results.tex}
+
+\section{Discussion}
+\label{sec:discussion}
+\input{sections/discussion.tex}
+
+\section{Related Work}
+\input{sections/related.tex}
+
+\section{Conclusion}
+\input{sections/conclusion.tex}
+
+\section{Acknowledgments}
+Work supported in part by the NSF grant DMS-2134108 and Open Philanthropy, and
+in part by NSF Grant No. 2346519. The authors would like to thank Benjamin
+Chen, Aleksander M\k{a}dry, Axel Feldmann, Billy Moses, Joel Flynn, Sam Park,
+Sarah Cen, Sam Hopkins, and Piotr Indyk for helpful references as well as
+discussions and feedback on early versions of this work.
+
+\printbibliography
+
+\clearpage
+\appendix
+
+\section{Experimental details}
+\label{app:expdetails}
+\input{appendices/expdetails.tex}
+
+\section{Baselines}
+\label{app:baselines}
+\input{appendices/baselines.tex}
+
+\end{document}

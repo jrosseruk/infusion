@@ -1,0 +1,40 @@
+Our work is related to the growing literature on predictive data attribution
+methods---see \citet{ilyas2024data} or \citet{hammoudeh2022training} for 
+a survey. 
+Related to our method are those that use variants of the influence
+function~\citep{hampel2011robust} (i.e., the Taylor 
+approximation from Section \ref{sec:influence_fn}). 
+In settings where the learning algorithm 
+minimizes a convex objective, such influence function-based methods 
+are known to have an efficient and accurate closed form 
+\citep{rad2018scalable,koh2019accuracy,giordano2019swiss,nobel2024randalo}.
+In scenarios where the learning algorithm does not return
+a convex minimizer (such as in deep learning), 
+this closed form is not available.
+
+In such cases, the dominant approach is to apply one of many
+efficient approximate approaches
+\citep{koh2017understanding,ladhak2022tracing,schioppa2022scaling,park2023trak,grosse2023studying}.
+However, in the non-convex settting, these approximations 
+do not offer correctness guarantees like they do in convex settings,
+and can even have different interpretations entirely \citep{bae2022if}---potentially 
+leading to the poor correlations we observe in Section~\ref{sec:results}.
+Closer to our work are methods that attempt to approximate the influence function 
+via {\em unrolling} \citep{bae2024training}. These methods leverage 
+the same recursive formula of \eqref{eq:replay_meta_grad}---but 
+still {\em approximate} the influence function rather than compute it exactly.
+
+To compute the influence function exactly,
+we leverage recent advances in {\em metagradient} calculation 
+\citep{engstrom2025optimizing}. These advances in turn build on 
+a long line of work on differentiating through optimization 
+\citep{maclaurin2015gradient,lorraine2020optimizing}---see 
+\citet{engstrom2025optimizing} for a recent survey.
+
+Finally, our single-model data attribution setting is motivated by the 
+nondeterminism of model training. 
+This phenomenon has been studied from a variety of perspectives, 
+including training dynamics~\citep{zhuang2022randomness,jordan2024variance}, 
+fairness~\citep{black2022model,marx2020predictive}, 
+and even data attribution~\citep{ilyas2022datamodels,nguyen2023bayesian}.
+

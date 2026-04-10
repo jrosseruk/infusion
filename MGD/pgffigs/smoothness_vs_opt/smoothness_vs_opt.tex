@@ -1,0 +1,60 @@
+\pgfplotsset{colormap/Set2}
+\pgfplotsset{scaled y ticks=false}
+\pgfplotsset{grid style={dashed,gray}}
+
+\begin{tikzpicture}
+    \begin{axis}[
+      xlabel={Smoothness},
+	  ylabel={$\Delta$ Loss (Optimization Objective)},
+      height={6.8cm},
+      width={6cm},
+	  ytick pos=right,
+	  y tick label style={
+        /pgf/number format/fixed,     %
+        /pgf/number format/precision=2,  
+        /pgf/number format/zerofill   %
+      },
+      scaled y ticks=false,
+      colormap name={Set2},
+      grid={both}
+    ]
+
+    \pgfkeys{
+        /markarray/0/.initial=*,
+        /markarray/1/.initial=triangle*,
+        /markarray/2/.initial=square*,
+        /markarray/3/.initial=o,
+        /markarray/4/.initial=square*,
+        /markarray/5/.initial=square
+    } 
+    \addplot [
+      scatter,
+      only marks,
+      forget plot,
+      visualization depends on=\thisrow{bs} \as \bsize,
+      visualization depends on=\thisrow{final_scale} \as \fscale,
+      visualization depends on=\thisrow{batchnorm_before_act} \as \bnact,
+      visualization depends on=\thisrow{width_multiplier} \as \width,
+      scatter/@pre marker code/.code={
+        \pgfmathparse{\width == 1.0 ? 0 : (\width == 1.5 ? 1 : 2)}
+        \edef\currentmark{\pgfkeysvalueof{/markarray/\pgfmathresult}}
+        \pgfmathsetmacro{\mycolor}{\fscale == 0.125 ? 0 : (\fscale == 0.5 ? 128 : 255)}
+        \pgfmathsetmacro{\myopacity}{\bnact == 0 ? 0.2 : 1}
+        \pgfplotsset{mark=\currentmark}
+        \def\markopts{mark size={(\bsize == 250 ? 2 : (\bsize == 500 ? 3 : 4))},%
+        color of colormap=\mycolor,
+        draw=black,
+        opacity=\myopacity}
+        \expandafter\scope\expandafter[\markopts]
+      },
+      scatter/@post marker code/.code={
+        \endscope
+      }, 
+    ]
+    table[
+      x={smoothness},
+      y={val_acc_x},
+      col sep=comma,
+    ]{pgffigs/smoothness_vs_opt/smoothness_vs_opt.csv};
+    \end{axis}
+\end{tikzpicture}

@@ -1,0 +1,115 @@
+\pgfplotsset{colormap/Set2}
+\pgfplotsset{scaled y ticks=false}
+\pgfplotsset{grid style={dashed,gray}}
+
+\begin{tikzpicture}
+    \begin{axis}[
+      xlabel={Metagradient steps},
+	  ylabel={Accuracy},
+      height={5.2cm},
+	  width={10cm},
+      colormap name={Set2},
+	  legend pos=south east,
+      legend style={at={(1.1,1)}, anchor=north west, inner sep={6pt}},
+      legend cell align={left},
+	  xmin=-1,
+	  xmax=51,
+	  ymin=0.87,
+	  ymax=0.95,
+      grid=both
+    ]
+	\addlegendentry{Best grid target acc}
+	\addplot[mark=none, index of colormap=3, domain=-2:1000, samples=2, dashed, very thick] {0.9401889};
+
+	\addlegendentry{Best grid test acc}
+	\addplot[mark=none, index of colormap=3, domain=-2:1000, samples=2, solid, very thick] {0.9266};
+
+	\addplot[
+      index of colormap=0,
+	  mark size=0.0,
+	  very thick,
+	  dashed,
+      error bars/.cd,
+      y dir=both,
+      y explicit,
+    ] table[
+      x=it,
+      y=ymean,
+      col sep=comma   %
+	]{pgffigs/lr_opt_result/target_over_time.csv};
+	\addlegendentry{MGD-LR target acc}
+
+	\addplot[
+      index of colormap=0,
+	  mark size=0.0,
+	  very thick,
+      error bars/.cd,
+      y dir=both,
+      y explicit,
+    ] table[
+      x=it,
+      y=ymean,
+      col sep=comma   %
+	]{pgffigs/lr_opt_result/test_over_time.csv};
+	\addlegendentry{MGD-LR test acc}
+
+	\addplot [
+	  name path=upper_target,
+	  draw=none,
+	  forget plot
+	] 
+	table [
+	  x=it, 
+	  y expr=\thisrow{ymean} + \thisrow{yerr}, 
+	  col sep=comma
+	]{pgffigs/lr_opt_result/target_over_time.csv};
+
+	\addplot [
+	  name path=lower_target,
+	  draw=none,
+	  forget plot
+	] 
+	table [
+	  x=it, 
+	  y expr=\thisrow{ymean} - \thisrow{yerr}, 
+	  col sep=comma
+	]{pgffigs/lr_opt_result/target_over_time.csv};
+
+    \addplot[
+      fill opacity=0.2,
+	  index of colormap=0,
+    ] fill between[
+      of=upper_target and lower_target,
+    ];
+
+	\addplot [
+	  name path=upper_test,
+	  draw=none,
+	  forget plot
+	] 
+	table [
+	  x=it, 
+	  y expr=\thisrow{ymean} + \thisrow{yerr}, 
+	  col sep=comma
+	]{pgffigs/lr_opt_result/test_over_time.csv};
+
+	\addplot [
+	  name path=lower_test,
+	  draw=none,
+	  forget plot
+	] 
+	table [
+	  x=it, 
+	  y expr=\thisrow{ymean} - \thisrow{yerr}, 
+	  col sep=comma
+	]{pgffigs/lr_opt_result/test_over_time.csv};
+
+    \addplot[
+      fill opacity=0.2,
+	  index of colormap=0,
+    ] fill between[
+      of=upper_test and lower_test,
+    ];
+
+    \end{axis}
+\end{tikzpicture}

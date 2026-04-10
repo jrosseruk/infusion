@@ -1,0 +1,248 @@
+This appendix contains pseudocode for the main algorithm used to do dataset
+selection for DataComp. It also contains additional implementation details on
+how metagradients were applied to CLIP, and how they were specifically applied
+to the DataComp setting.
+
+\subsection{Dataset Selection Using MGD}
+
+When implementing Algorithm \ref{alg:depsing}, there are several differences from the pseudocode below:
+firstly, rather than selecting $\mathbf{m}$ fully randomly every step, we
+randomly select a shard comprising fraction $p$ of the data and take steps on
+all datapoints in the shard (see Section~\ref{sec:scaling_clip}).  To mitigate
+overfitting, we also bake a ``minibatch fraction'' $q$ into our model output
+function $\phi$.  For example, if $\phi$ calculates model loss on the ImageNet
+train set, each time $\phi$ is called, we randomly sample fraction $q$ of the
+ImageNet train set to evaluate on.
+
+\paragraph{Adapting the CLIP loss function to our surrogate learning algorithm.}
+Here, we explain how dataweights are incorporated into the CLIP loss
+function---the formulation given in Section \ref{sec:datacomp} is actually
+slightly simplified and incorrect, as it does not account for cross terms in
+the CLIP contrastive loss.  As a refresher, we first state the ``vanilla'' CLIP
+loss function, $\ell$, as it is defined in \cite{radford2021learning}.  Letting
+$b$ be the batch size and $d$ be the embedding dimension, and $\mathbf{x}$ be
+the
+training batch at timestep $k$.
+Recall that the CLIP model internally has two ``submodules'': and image
+embedder, and a text embedder.  We then use these to obtain image embeddings
+$E_I \in \mathbb{R}^{b \times d}$ and text embeddings $E_T \in
+\mathbb{R}^{b \times d}$ from $\mathbf{x}$. We then compute the image-wise
+scores, or logits, for this batch as
+$S = E_I E_T^\top$ \footnote{The CLIP model scales these logits by a
+	temperature parameter $\tau$ before applying the softmax. While we omit
+	$\tau$ in our definitions, it can be easily incorporated. All our
+experiments use temperature scaling.}.
+Then, we can define the CLIP loss (as a function of the logits) as
+\begin{equation*}
+	L(S) = \frac{1}{2} (L_I(S) + L_T(S)),
+\end{equation*}
+where $L_I$ and $L_T$ are row-wise and column-wise cross-entropy losses, respectively:
+\begin{equation*}
+	L_I(S) = \sum_{i=1}^b 
+    \log \left(
+      \frac{\exp(S_{i,i})}
+           {\sum_{j=1}^b \exp(S_{i,j})}
+    \right), \quad
+	L_T(S) = \sum_{i=1}^b 
+    \log \left(
+      \frac{\exp(S_{i,i})}
+           {\sum_{j=1}^b \exp(S_{j,i})}
+    \right).
+\end{equation*}
+
+We now wish to relax $L$ into a new function $L'$ that supports an additional
+input $\mathbf{z} \in \mathbb{R}^n$, where $\frac{\partial L'}{\partial
+\mathbf{z}}$ resembles the metagradients with respect to dataweights.  In order
+to do this, we imagine expanding passing the \emph{entire dataset} $D$ into our
+embedder to obtain $E_I'$ and $E_T'$, and take our new logits $S' = E_I'
+E_T'^\top \in \mathbb{R}^{n \times n}$.
+
+There are some additional key conditions our relaxation $L'$ should satisfy. 
+Particularly:  when $\mathbf{z} = \mathbf{0}_n$, we should recover the normal
+CLIP loss $L$, and when $\mathbf{z}$ is all 0's except for a single entry $i$,
+$L'$ should act as if $i$ had been appended to the original batch $\mathbf{x}$.
+In addition, $L'$ should always have meaningful partials with
+respect to $\mathbf{z}$, even when some values in $\mathbf{z}$ are 0.  
+
+Letting $\mathbf{1}_{i = j}$ and $\mathbf{1}_{i \neq j}$ be indicator variables
+and letting $\mathbf{1}_{k} \in \{0, 1\}^n$ be the indicator vector for the
+$k$-th batch, we find that the definition
+\[
+	L'(S', \mathbf{z}) = L'_I(S', \mathbf{z}) + L'_T(S', \mathbf{z}),
+\]
+where
+\[
+	L'_I(S', \mathbf{z}) = \sum_{i=1}^n
+	(z_i + (\mathbf{1}_{k})_i) \log \left(
+      \frac{\exp(S'_{i,i})}
+	  {\sum_{j=1}^n \exp(S'_{i,j}) \left(\mathbf{1}_{i = j} + \mathbf{1}_{i \neq j} (z_j + (\mathbf{1}_k)_j)\right)}
+    \right)
+\]
+and
+\[
+	L'_T(S', \mathbf{z}) = \sum_{i=1}^b 
+	(z_i + (\mathbf{1}_{k})_i) \log \left(
+      \frac{\exp(S'_{i,i})}
+	  {\sum_{j=1}^n \exp(S'_{j,i}) \left(\mathbf{1}_{i = j} + \mathbf{1}_{i \neq j} (z_j + (\mathbf{1}_k)_j)\right)}
+    \right)
+\]
+satisfy these conditions.  
+
+Finally, we let define the loss for the entire batch $\ell'$ as a function of $\mathbf{z}$ and model parameters $\theta$ which outputs the loss calculated according to $L'$ above.
+To summarize, letting $\mathbf{x}^{(t)}$ denote the $t$-th training batch, the loss function $\ell_t$ at step $t$ of our surrogate learning algorithm $\mathcal{A}'$ for CLIP training is:
+\begin{equation*}
+	\label{eq:surrogate_objective_new}
+    \ell'_t(\theta) := 
+    \begin{cases}
+		\ell(\mathbf{x}^{(t)}; \theta) & \text{if } t \neq k \\
+		\ell'(\mathbf{z}; \theta) & \text{if } t = k.
+    \end{cases}
+\end{equation*}
+We find that this empirically works well for obtaining meaningful
+metagradients with respect to dataweights in the CLIP setting, and yields to strong dataset selection results.
+
+\subsection{Scaling MGD for CLIP and DataComp}
+\label{sec:scaling_clip}
+
+MGD is highly scalable, allowing it to be applied to large-scale settings like
+training CLIP models.  In particular, computing metagradients is only up to a
+constant factor more expensive than training a model normally. 
+Here, we outline challenges we faced in scaling MGD in this setting, and how they were resolved.
+Specifically, we will explain how we efficiently calculated metagradients for
+CLIP models and efficiently tracked/shuffled our dataset selection from
+step-to-step despite its large storage footprint.
+
+\paragraph{Computing metagradients.}
+Due to the large batch size used in the CLIP contrastive loss, we implement
+manual gradient checkpointing to make the operations computationally feasible
+on our hardware.  The most memory-intensive operation are model forward passes
+(and its gradients): obtaining the image and label embeddings given raw pixel
+data and tokens.  So, we manually make gradient checkpoints before this
+operation, allowing us to run the embedder in minibatches to avoid memory
+issues.  This setup also naturally lends itself to parallelization across
+multiple GPU's, which we make use of to further speed up our computations.
+
+\paragraph{Loading, writing, and storing data.}
+Due to the data-intensive nature of training large models like CLIP and our
+need to frequently produce new datasets at each optimization step, we found
+that using the webdataset \cite{webdataset2024webdataset} format given by
+DataComp was restrictively slow.  To circumvent this, we rewrote all data
+following the format of FFCV \cite{leclerc2022ffcv}, allowing us to load and
+write data much faster.  Specifically, we divided the entire candidate pool
+into 8 base shards.  Once we trained a model, we choose one of the 8 shards,
+compute metagradients corresponding to all datapoints in the shard, take a
+gradient step on them, and rewrite the shard.  This roughly corresponds to $p =
+\frac{1}{8}$ in Algorithm \ref{alg:depsing}, which we empirically worked well
+for optimizing.  In following steps, we always choose one of the 8
+\emph{original} shards to calculate metagradients for---this ensures that
+points removed from the dataset in some optimization step can return if they
+have a negative metagradient.
+
+We also observed that always stepping on the sign causes the sizes of the
+shards to grow over time: stepping based on the sign of the metagradient does
+not decrease the weight on a positive-weight datapoint if its dataweight  is
+already 0, so our steps are biased towards increasing the size of the shards. 
+To combat this blowup, after some number of optimization steps, we choose a
+fixed shard size and enforce that subsequent steps must not change the size of
+the shards---the step size thereafter is controlled by hyperparameter $q$
+representing the fraction of datapoints in a shard which are incremented.  We
+experimented both with randomly sampling which points are added or removed, and
+stepping on the datapoints with the top $q$ and bottom $q$ metagradients; the 
+latter seems to give empirically better performance.
+
+To maintain randomness during shuffling, we implement an 8-way dataloader which
+would shuffle all 8 shards individually.  Then, to sample a batch of $b$
+datapoints, we would sample $b / 8$ datapoints from each shard and concatenate
+them to fill our batch.  This works better than simply sampling our entire
+batch from a single shard, as (especially in later optimization steps) shards
+may contain a high number of duplicate datapoints, which causes CLIP's
+contrastive loss function to misbehave if they appear in the same batch.
+
+To minimize disk space used, old shards can be deleted once they become
+``stale''.  Specifically, if shard $s$ is rewritten into shard $s'$, all future
+optimization steps will never read $s$ again, and $s$ can safely be
+deleted.  Thus, when running MGD for a large number of steps and potentially
+rewriting each shard multiple times, the total disk space used by our algorithm
+is constant in the number of steps we take: it stores the 8 most recently written 
+shards on disk at any given time, and any other shards are deleted to save space.
+
+\subsection{Details Pertaining to the DataComp Benchmark}
+
+\paragraph{Setting.}
+We provide a brief summary of the DataComp competition here, and we refer
+readers to the original paper \cite{gadre2024datacomp}.  DataComp is a
+framework to compare different training dataset selection techniques. 
+Participants submit a training dataset (which, for our purposes, is a subset of
+a larger dataset), upon which a CLIP model is trained from scratch with a fixed
+learning algorithm, model architecture, and number of training steps.  We focus
+on DataComp-small, which has a candidate pool of 12.8 million samples.  The
+number of training steps in this case is also fixed at 12.8 million samples. 
+
+We try to match the optimization hyperparameters enforced by DataComp as
+closely as possible.  As a refresher, our ADAM\cite{kingma2015adam} update step
+can be written as
+\begin{equation}
+	\label{eq:adam_update}
+	\theta_{t+1} = -\alpha_t \cdot \left(m_t / \left(\sqrt{v_t +
+	\epsilon_\mathrm{root}} + \epsilon\right) + \lambda \theta_t\right)
+\end{equation}
+where $m_t$ and $v_t$ are running estimates of the first and second moments of
+the gradients, respectively, $\lambda$ represents weight decay, $\alpha$
+represents the learning rate, and $\epsilon$ and $\epsilon_\mathrm{root}$ are
+hyperparameters to avoid blowup.  Our training hyperparameters can be found in
+Table \ref{tab:clip_hparams} and are identical to those mandated by
+DataComp-small, aside from a positive $\epsilon_\mathrm{root}$ added for
+numerical stability. The values of $\epsilon_{\mathrm{root}}$ and $k$ (the step
+at which metagradients are calculated) were chosen to empirically maximize
+metasmoothness.
+
+
+\begin{table}[h]
+	\caption{Hyperparameters for the CLIP DataComp experiments.}
+	\centering
+	\input{tables/clip_hparams_table.tex}
+	\label{tab:clip_hparams}
+\end{table}
+
+Our experiments are also run on an incomplete subset of the entire DataComp
+candidate pool.    DataComp did not store the raw image and text files when
+assembling their dataset; they only stored a list of URL's to download data
+from.  Due to the nature of the internet, for various reasons, some of these
+URL's no longer point to the same data (or no longer point to any data at all).
+Thus, after ignoring these broken links, our candidate pool is only around
+$80\%$ of the size of the original DataComp candidate pool when it was
+collected in 2023.  All our results are obtained by running our methods on this
+subset of the DataComp pool.
+
+\paragraph{Evaluation tasks.}
+In order to ensure that our method is truly improving trained models'
+performances on the \emph{entire target distribution} and not overfitting to
+the target set, for each of the 38 evaluation tasks used by DataComp, we
+attempted to separately create a disjoint target and validation set (DataComp only
+creates test sets for each task).  Thus, metagradients were computed on the
+target sets and model performance was evaluated on the validation set, before
+submitting with the official DataComp script and evaluating on the test sets. 
+This ensures that our method's generalization ability is being evaluated, and
+we are not overfitting to our target set.
+
+For various reasons, creating target splits was not possible for all 38 tasks;
+we summarize our setup in Table \ref{tab:datacomp_tasks}.
+
+{
+\renewcommand{\thefootnote}{\fnsymbol{footnote}}
+\begin{table}[h]
+\caption{All DataComp evaluation tasks.  The ``Target set'' column refers to whether metagradients were taken on the target set corresponding to this dataset.}
+\centering
+{
+	\scriptsize
+	\input{tables/clip_tasks_table.tex}
+}
+\label{tab:datacomp_tasks}
+\end{table}
+\footnotetext[1]{No train or val set exists for this dataset, so we were unable to create disjoint target and val sets.}
+\footnotetext[2]{We were unable to use this dataset due to technical difficulties.}
+\footnotetext[3]{Both the train and val sets were used by DataComp to make their test set, so we were unable to create disjoint target and val sets.}
+\footnotetext[4]{Retrieval tasks were not used for metagradients.}
+}
+
+

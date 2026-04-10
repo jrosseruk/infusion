@@ -1,0 +1,112 @@
+\pgfplotsset{colormap/Set2}
+\pgfplotsset{scaled y ticks=false}
+\pgfplotsset{grid style={dashed,gray}}
+
+\definecolor{mycolor0}{HTML}{66C1A5}
+\definecolor{mycolor1}{HTML}{6EBAAD}
+\definecolor{mycolor2}{HTML}{75B4B4}
+\definecolor{mycolor3}{HTML}{7DADBC}
+\definecolor{mycolor4}{HTML}{84A7C3}
+\definecolor{mycolor5}{HTML}{8CA0CB}
+ 
+
+
+\begin{tikzpicture}
+    \begin{axis}[
+      xlabel={Training step},
+	  ylabel={Learning rate},
+      height={7cm},
+      width={10cm},
+      colormap name={Set2},
+	  legend style={
+			title=MGD step, %
+            at={(1.02,1)},      %
+            anchor=north west,  %
+	},
+      grid=both
+    ]
+	\addplot[
+	  color=mycolor0,
+	  mark size=0.0,
+	  very thick,
+      error bars/.cd,
+      y dir=both,
+      y explicit,
+    ] table[
+      x=x,
+      y=1,
+      col sep=comma   %
+	]{pgffigs/lr_sched_plot/scheds.csv};
+	\addlegendentry{1}
+
+	\addplot[
+	  color=mycolor1,
+	  mark size=0.0,
+	  very thick,
+      error bars/.cd,
+      y dir=both,
+      y explicit,
+    ] table[
+      x=x,
+      y=11,
+      col sep=comma   %
+	]{pgffigs/lr_sched_plot/scheds.csv};
+	\addlegendentry{11}
+
+	\addplot[
+	  color=mycolor2,
+	  mark size=0.0,
+	  very thick,
+      error bars/.cd,
+      y dir=both,
+      y explicit,
+    ] table[
+      x=x,
+      y=21,
+      col sep=comma   %
+	]{pgffigs/lr_sched_plot/scheds.csv};
+	\addlegendentry{21}
+
+	\addplot[
+	  color=mycolor3,
+	  mark size=0.0,
+	  very thick,
+      error bars/.cd,
+      y dir=both,
+      y explicit,
+    ] table[
+      x=x,
+      y=31,
+      col sep=comma   %
+	]{pgffigs/lr_sched_plot/scheds.csv};
+	\addlegendentry{31}
+
+	\addplot[
+	  color=mycolor4,
+	  mark size=0.0,
+	  very thick,
+      error bars/.cd,
+      y dir=both,
+      y explicit,
+    ] table[
+      x=x,
+      y=41,
+      col sep=comma   %
+	]{pgffigs/lr_sched_plot/scheds.csv};
+	\addlegendentry{41}
+
+	\addplot[
+	  color=mycolor5,
+	  mark size=0.0,
+	  very thick,
+      error bars/.cd,
+      y dir=both,
+      y explicit,
+    ] table[
+      x=x,
+      y=51,
+      col sep=comma   %
+	]{pgffigs/lr_sched_plot/scheds.csv};
+	\addlegendentry{51}
+    \end{axis}
+\end{tikzpicture}

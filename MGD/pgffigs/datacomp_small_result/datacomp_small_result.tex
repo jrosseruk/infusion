@@ -1,0 +1,43 @@
+\pgfplotsset{colormap/Set2}
+\pgfplotsset{scaled y ticks=false}
+\pgfplotsset{grid style={dashed,gray}}
+
+\begin{tikzpicture}
+    \begin{axis}[
+      xlabel={Metagradient steps},
+      ylabel={DataComp Score},
+      height={4.8cm},
+      width={7.5cm},
+      colormap name={Set2},
+      ytick distance=0.03,
+      xmin=-3,
+      xmax=57,
+      grid=both
+    ]
+
+    \addplot[mark=none, index of colormap=3, domain=-10:60, samples=2, dashed, very thick] {0.1377730386384371};
+    \addlegendentry{No filtering}
+    \addplot[mark=none, index of colormap=1, domain=-10:60, samples=2, dashed, very thick] {0.173};
+    \addlegendentry{Best DataComp baseline}
+    \addplot[mark=none,, index of colormap=2, domain=-10:60, samples=2, dashed, very thick] {0.182};
+    \addlegendentry{Prev. SOTA (EcoDatum)}
+    \addplot [scatter,
+                index of colormap=0,
+                very thick,
+                scatter/@pre marker code/.code={3
+                    \def\markopts{index of colormap=0}
+                    \expandafter\scope\expandafter[\markopts]
+                },
+                scatter/@post marker code/.code={
+                    \endscope
+                },] 
+    table[
+      x=it,
+      y={score},
+      col sep=comma,
+    ]{pgffigs/datacomp_small_result/datacomp_small_result.csv};
+    \addlegendentry{MGD-DS (ours)}
+
+    \legend{}
+    \end{axis}
+\end{tikzpicture}

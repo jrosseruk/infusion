@@ -1,0 +1,51 @@
+
+In this section, we first present the main limitations of our method and
+outline future directions.
+
+\paragraph{Limitations.} Although \replay{} is more efficient than existing
+methods at computing metagradients, it is still non-trivially more expensive
+than simply training a model once. The main reason is that metagradients require
+making a \emph{backwards pass over a backwards pass}. This operation necessarily
+requires 2-3 times the operations of a backwards pass; furthermore, our current
+implementation requires \texttt{float32}/\texttt{tensorfloat32} operations.
+Finally, standard training operations are often made more efficient by
+specialized software (e.g., via FlashAttention~\citep{dao2022flashattention});
+no such software (yet) exists for backwards-over-backwards operations. Beyond
+computational issues, successfully applying metagradients requires smooth model
+training. 
+
+\paragraph{Metasmoothness: connections and future directions.}
+While Section \ref{sec:localpred} describes a general procedure for finding 
+metasmooth learning algorithms, an important future direction is 
+to further explore and understand metasmoothness.
+This includes, for example: 
+(a) characterizing the relationship between metasmoothness 
+and numerical stability (and potentially using techniques from the latter to
+improve the former); 
+(b) devising improved optimizers and/or architectures that lead directly 
+to metasmooth learning algorithms (akin to skip connections or 
+stable initialization in architecture design);
+(c) formalizing connections between metasmoothness and other 
+optimization-related phenomena in deep learning 
+\citep{leclerc2020two,cohen2022gradient}. 
+A related but separate direction is to explore the possibility of using 
+techniques from non-smooth optimization \citep{clarke1990optimization} 
+to perform metagradient descent on non-metasmooth learning algorithms.
+
+
+\paragraph{Applying metagradients.}
+Our methods apply to any ML task that requires
+optimizing with respect to a metaparameter. 
+These include: poisoning data
+(generated or simply hosted on the internet) so that it cannot be trained on
+without permission (i.e., by maximizing training loss with respect to the text);
+selecting better training data at various stages of the model training
+lifecycle; and designing better model training routines and architectures with
+first-order methods. Another direction of future work lies in mitigating the
+computational limitations of our algorithm. Both (a) small-scale
+proxy-models~\citep{hoffmann2022training,engstrom2024dsdm} and (b) low-hanging
+engineering improvements can likely make calculating metagradients much more
+efficient.
+
+
+

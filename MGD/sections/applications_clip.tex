@@ -1,0 +1,213 @@
+Curating a training dataset from a mass of unfiltered data is a necessary and
+influential step in any large-scale machine learning pipeline. Deciding how to
+curate such a dataset is a challenging problem that has attracted substantial
+recent
+interest~\citep{fang2022data,abbas2023semdedup,engstrom2024dsdm,gadre2024datacomp}.
+In this section, we frame pre-training data selection as an optimization
+problem, and then solve this problem by first-order optimizing with
+metagradients. Applying our method to the DataComp-small benchmark
+\citep{gadre2024datacomp}, we greatly improve on the state-of-the-art (our
+  improvement over state-of-the-art is roughly the same as the
+improvement of state-of-the-art over training on random data).
+
+\subsubsection{Setup}
+The goal of {dataset selection} is to choose a training data subset (out of
+a broad pool of data) that maximizes trained machine learning model
+performance.
+Given this goal,
+dataset selection has a natural interpretation as a
+combinatorial metaparameter optimization problem.
+In particular, in the language of Section \ref{subsec:meta_gradient},
+for a training set of size $n$, let
+\begin{itemize}
+  \item[(a)] the metaparameters $\mathbf{c} \in \mathcal{C} :=
+    \mathbb{Z}_{\geq 0}^n$ be non-negative data counts representing
+    the number of times each training sample repeats in the training data;
+  \item[(b)] the algorithm $\mathcal{A}$ be a standard large-scale
+    learning procedure, which runs on a training set
+    comprising $c_i$ copies of each sample $i$ for $i \in [n]$;
+  \item[(c)] the output function $\phi$ be the loss of the trained model on a target
+    distribution $\dtarg{}$.
+\end{itemize}
+Then, defining $f(\mathbf{c}) := \phi(\mathcal{A}(\mathbf{c}))$ (as
+in Section~\ref{subsec:meta_gradient}),
+our goal is to find the data counts $\mathbf{c^*}$ that solve
+\begin{equation}
+  \label{eq:ds}
+  \mathbf{c}^* := \argmin_{\mathbf{c} \in \mathcal{C}} f(\mathbf{c}).
+\end{equation}
+
+\subsubsection{Gradient descent on training data}
+\label{sec:gdod}
+Metagradients let us \textit{directly} minimize the target task
+loss \eqref{eq:ds}
+with respect to the choice of training data.
+At a high level, our algorithm operates as follows:
+we start with a randomly chosen set of training data, then
+iteratively update the dataset selection using
+metagradients with respect to importance weights
+placed on each training datapoint.
+The specifics of our method are in Algorithm~\ref{alg:depsing};
+we describe its core ideas below.
+
+\paragraph{Idea 1: A surrogate algorithm.} We cannot use metagradients to
+optimize \eqref{eq:ds} directly, because the metaparameters of
+interest $\mathbf{c}$ are
+discrete counts (and so the algorithm $\mathcal{A}$ is non-differentiable with 
+respect to $\mathbf{c}$). 
+To circumvent this problem, we relax $\mathcal{A}$: we define a surrogate algorithm
+$\mathcal{A}_\mathbf{c}'$ that takes in a {\em continuous}
+metaparameter $\mathbf{z} \in
+\mathbb{R}^n$, whose metagradient we \textit{can} compute, then optimize using
+the metagradient on $\mathcal{A}_\mathbf{c}'$.
+
+This surrogate learning algorithm $\mathcal{A}_\mathbf{c}'$ maps a metaparameter 
+$\mathbf{z} \in \mathbb{R}^n$ (representing a perturbation to training data weights) 
+to a machine learning model.
+The surrogate is defined by a set
+of counts $\mathbf{c} \in \mathbb{Z}_+^n$, and a hyperparameter $k$ denoting a
+specific training iteration, both of which we bake into the surrogate algorithm
+itself. 
+Given a metaparameter $\mathbf{z} \in \mathbb{R}^n$, the algorithm
+$\mathcal{A}_\mathbf{c}'$ trains a model ``as usual'' using the fixed counts
+$\mathbf{c}$. That is, it makes $c_i$ copies of each training sample $i$,
+shuffles and partitions the data into batches, and then at each iteration
+minimizes the batch loss with a step---just as the original learning algorithm
+$\mathcal{A}$. At iteration $k$, however, in addition to the original loss on
+the $k$-th batch, the algorithm upweights {\em each} training sample $i$
+according to the metaparameter $z_i$. In other words, the objective at iteration
+$t$ of the surrogate algorithm $\mathcal{A}_\mathbf{c}'$ is
+\begin{equation*}
+  \label{eq:surrogate_objective}
+  \ell'_t(\theta) :=
+  \begin{cases}
+    \sum_{x \in t^{\text{th}} \text{ batch}} \ell(x; \theta) &
+    \!\!\text{if } t \neq k \\
+    \sum_{x \in t^{\text{th}} \text{ batch}} \ell(x; \theta) +
+    \sum_{i=1}^n z_i \ell(x_i; \theta) &\!\!\text{if } t = k
+  \end{cases}
+\end{equation*}
+where $\ell(x; \theta)$ is the training loss on example $x$.
+
+Observe that when $\mathbf{z} = \mathbf{0}_n$, the algorithm
+$\mathcal{A}_\mathbf{c}'$  is identical to the standard learning algorithm
+$\mathcal{A}$. And while $\mathcal{A}$ was a function of (nondifferentiable)
+discrete data counts $\mathbf{c}$, $\mathcal{A}_\mathbf{c}'$ is differentiable
+with respect
+its input $\mathbf{z}$, and so we can compute the metagradient
+\[
+  \mathbf{g} := \nabla_{\mathbf{z}}
+  \phi\big(\mathcal{A}_\mathbf{c}'(\mathbf{z})\big)\big\vert_{\mathbf{z}
+  = \mathbf{0}_n}.
+\]
+Intuitively, the entries of the metagradient $\mathbf{g}$ capture the effect of
+adding an infinitesimal amount of each training sample $i$ to the training data
+at iteration $k$. A positive entry $g_i$ indicates that adding an infinitesimal
+amount of sample $i$ to the training data would increase the loss,  and a
+negative entry indicates that adding an infinitesimal amount of sample $i$ to
+the training data would decrease the loss; the slot at $i$ represents the
+(estimated) effect of adding a copy of sample $i$ to the training
+data at every batch containing the sample.
+
+\paragraph{Idea 2: Block coordinate descent.}
+We then use the metagradient $\mathbf{g}$ to iteratively update our selected
+dataset. We update data counts as
+\begin{equation}
+  \label{eq:update}
+  \mathbf{c} \gets \mathbf{c} - \mathrm{sign}(\mathbf{g}) \odot
+  \mathbf{m}, \quad \mathbf{m} \sim \mathrm{Bernoulli}(p),
+\end{equation}
+where $p$ is a hyperparameter controlling the fraction of sample counts to
+update. This algorithm resembles a block coordinate descent algorithm
+\citep{ortega2000iterative}, with the main difference being that we take signed
+gradient steps with step size $1$ (projected onto non-negative integers) to
+ensure that the counts remain well-defined. As a result, $p$ implicitly controls
+the algorithm's step size.
+
+Applying \eqref{eq:update} concludes a single optimization step.
+By repeating this process of estimating the metagradient, updating our
+counts vector, then constructing a new training dataset, we iteratively
+improve the selected data.  Pseudocode for our algorithm can be found in Algorithm \ref{alg:depsing}.
+
+\begin{algorithm}[h]
+    \SetKwFor{For}{\textcolor{forcolor}{for}}{\textcolor{forcolor}{do}}{}
+    \SetKw{Return}{\textcolor{forcolor}{Return}}{}
+    \SetKwFunction{traversereverse}{\textcolor{fncolor}{reverse\_inorder\_traversal}}
+    \DontPrintSemicolon
+	\KwIn{initial data counts $\mathbf{c} \in \mathbb{Z}_{\geq 0}^n$, learning algorithm $\mathcal{A}$, output function $\phi$}
+    \nonl\hspace{0pt}{\textbf{Hyperparameters:}} step size $p$, \# opt steps $T$, iteration number $k$ \;
+    \For{$t \gets 1$ \color{forcolor}{\textbf{to}} \color{black}$T$}{
+		$\mathbf{z} \gets \mathbf{0}_n$ \tcp{Build input to surrogate}
+		$\mathbf{g} \gets \frac{\partial \phi(\mathcal{A}'_\mathbf{c}(\mathbf{z}))}{\partial \mathbf{z}}$ \tcp{Calculate metagradient using \textsc{Replay}}
+		$\mathbf{m} \gets$ sample from $\textrm{Bernoulli}(p)$ \tcp{Sample indices to step on}
+		$\mathbf{c} \gets \mathbf{c} - \mathrm{sign}(\mathbf{g}) \odot \mathbf{m}$ \tcp{Take optimization step}
+    }
+	\Return $\mathbf{c}$ \tcp{Return final data counts}
+	\caption{Dataset selection using using metagradient descent (MGD).}
+    \label{alg:depsing}
+\end{algorithm}
+
+\subsubsection{Results}
+We evaluate our data selection algorithm using DataComp
+\cite{gadre2024datacomp}, a standardized framework for evaluating data selection
+methods for multimodal models. Algorithm~\ref{alg:depsing} greatly
+improves on the state-of-the-art for the benchmark. Below, we
+describe the setting, outline our
+method, and conclude with our results.
+
+\paragraph{Setting.}
+DataComp \citep{gadre2024datacomp} is a multimodal model training competition 
+and benchmark for evaluating dataset selection methods. 
+DataComp provides a \textit{fixed} learning algorithm
+chosen in advance by the organizers and a large fixed \emph{candidate pool} of
+internet data. The goal is to choose a subset of the
+candidate pool---possibly with repeated datapoints---that yields the best-performing
+model after training with the given learning algorithm, as measured by a
+predetermined set of 38 benchmarks. Given a submission subset, the mean score on
+the evaluation datasets for a model trained with that subset is taken as the
+final ``score.''  DataComp offers four separate ``scales'' requiring different
+amounts of compute; we focus on the \emph{small} scale in this paper
+due to compute limitations.
+
+\paragraph{Method.}
+We select data with MGD (Algorithm~\ref{alg:depsing}) to minimize loss on
+data on a ``target set'' that is distributionally similar to the DataComp
+benchmark tasks, and select hyperparameters with a held-out ``validation
+set.'' In particular, we construct target and validation sets by taking
+samples from the DataComp evaluation tasks with extra samples available beyond
+those used in the DataComp test set (e.g., ImageNet, one of the tasks in
+DataComp, has a training set in addition to the test set evaluated in DataComp).
+See Appendix~\ref{app:clip_details} for the exact details of the target and
+validation sets, the precise hyperparameters used with
+Algorithm~\ref{alg:depsing}, and a discussion on scalability (including further
+engineering details on executing our algorithm efficiently).
+
+\paragraph{Results.}
+MGD greatly outperforms the current state-of-the-art: the difference in accuracy
+between MGD and the current best method is roughly as large as the difference
+between the previous state-of-the-art (EcoDatum~\citep{ecodatum2024ecodatum})
+and training on randomly chosen data
+(cf.\ Figure~\ref{fig:datacomp_score_over_time}).
+Inspecting scores over the course of the optimization in Figure
+\ref{fig:datacomp_score_over_time}, we find that only a few steps are necessary
+to outperform previous methods.
+
+\begin{figure}[ht]
+  \centering
+  \begin{subfigure}[t]{0.49\textwidth}
+    \raisebox{-\height}{\input{pgffigs/datacomp_small_result/datacomp_small_result.tex}}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[t]{0.5\textwidth}
+    \input{tables/clip_improvement_table.tex}
+  \end{subfigure}
+  \caption{MGD dataset selection greatly outperforms existing methods (improving
+      over the previous SOTA by as much as the previous SOTA improves over no
+    filtering at all). We compare DataComp scores for MGD (over
+    optimization steps),
+    training on the entire candidate pool, the best baseline
+    originally proposed by
+  DataComp, and the previous SOTA~\citep{ecodatum2024ecodatum}.}
+  \label{fig:datacomp_score_over_time}
+\end{figure}
+

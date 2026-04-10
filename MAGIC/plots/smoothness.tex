@@ -1,0 +1,40 @@
+\begin{tikzpicture}
+  \begin{groupplot}[
+      group style={
+        group size=2 by 1, %
+        horizontal sep=1.5cm %
+      },
+      width=8cm,       %
+      height=4cm,      %
+      xmin=0, xmax=0.5,
+      ymin=-10, ymax=15,
+      axis lines=middle, %
+      xtick=\empty,      %
+      ytick=\empty,      %
+      grid=none,         %
+      enlargelimits=false, %
+      xlabel={$\varepsilon$}, %
+      ylabel={{\small $\Delta(\varepsilon) \coloneqq f(\wvec +
+          \varepsilon \mathbf{1}_i) -
+      f(\wvec)$}} %
+    ]
+
+    \nextgroupplot %
+    \addplot[
+      domain=0:0.46,
+      samples=300, %
+      blue %
+    ]
+    { 9 * sin(deg(90*x)) * sin(deg(20*x)) };
+
+    \nextgroupplot %
+    \addplot[
+      domain=0:.46,
+      samples=100, %
+      smooth,      %
+      red          %
+    ]
+    { 40*x - 40*x^2 };
+
+  \end{groupplot}
+\end{tikzpicture}

@@ -1,0 +1,28 @@
+In this section, we provide a brief overview of the baselines we consider.
+The basis of both of these methods is similar, and rooted in the Taylor
+approximation \eqref{eq:infl_fn} that also underpins \method{}:
+\begin{equation*}
+  \hat{f}(\wvec) := f(\mathbf{1}_n) +
+  \left(\frac{\partial f(\wvec)}{\partial
+  \wvec}\bigg|_{\wvec=\mathbf{1}_n}\right)^\top  (\wvec -
+  \mathbf{1}_n);
+\end{equation*}
+
+\subsection{TRAK (Tracing the Randomly-projected After Kernel)}
+TRAK \citep{park2023trak} estimates the influence of individual training
+examples on model predictions. However, instead of computing exact the
+influence, TRAK calculates the influence for a simple proxy model that (a) is
+easy to calculate the influence for and (b) is meant to match the original model
+class of interest. In particular, TRAK \textit{approximates} the original
+learning algorithm, $\mathcal{A}$, by linearizing around the final parameters.
+We refer the reader to \citet{park2023trak} for full details.
+
+\subsection{EK-FAC (Eigenvalue-corrected Kronecker-Factored Approximate
+Curvature)} EK-FAC \citep{bae2022if,grosse2023studying} is another
+influence-based data attribution method. To estimate the influence function, the
+method estimates the Hessian via the Fisher information matrix/Gauss-Newton
+hessian~\citep{martens2015optimizing,george2018fast}, then applies a version of
+the infinitesimal jackknife~\citep{giordano2019swiss} to calculate the gradient
+with respect to data weights. For an excellent high level overview of this
+approach, see Appendix D.1 of \citet{bae2024training}.
+

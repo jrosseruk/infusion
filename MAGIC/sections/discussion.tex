@@ -1,0 +1,92 @@
+In this section, we discuss the 
+connections between our single-model data attribution setting and 
+the standard data attribution problem, 
+the computational cost of our \method{} compared to the baselines 
+we consider, and finally some limitations of our method.
+
+\paragraph{Relationship between single-model and standard data attribution.}
+Recall (from Section \ref{sec:single_model_data_attribution}) that single-model data attribution 
+differs from the standard task of predictive data
+attribution in that there is no randomness. From a conceptual perspective, 
+this means that while standard data attribution is about predicting how a 
+{\em new} model would behave if retrained from scratch on a counterfactual
+dataset, single-model data attribution is about predicting how a {\em specific}
+model would behave if the data had been different.
+
+Technically, single-model data attribution is a more difficult problem than
+standard data attribution in the following natural sense: a {\em perfect}
+single-model data attribution method can exactly predict the behavior 
+of a specific model on any counterfactual dataset. 
+By averaging these predictions over multiple specific models 
+(each corresponding to a different learning algorithm seed),
+we obtain a perfect ``standard'' predictive data attribution method.
+The other direction, however, does not hold: it may be possible to construct
+a predictive data attribution method that perfectly predicts the 
+average behavior of a learning algorithm, but not the behavior
+of a specific model.
+
+
+\paragraph{Computational cost of data attribution.}
+One consideration that we have not yet addressed is the computational cost
+of {\em building} the data attribution method $\hat{f}$, which varies
+per-method and can differ greatly asymptotically for different scenarios.
+In what follows, we compare the cost of building \method{},
+TRAK, and EK-FAC in a setting with $N$ training samples and $n$ test samples.
+\begin{itemize}
+  \item TRAK \citep{park2023trak} has a hyperparameter $k$ which 
+  controls the accuracy of the method (mechanistically, $k$ 
+  determines the number of intermediate checkpoints used by the method).
+  TRAK with $k$ averaged models requires computing
+  $k \cdot (N + n)$ per-sample gradients, and storing small 
+  randomly-projected versions of them. 
+  \item EK-FAC has a similar computational structure to TRAK, but 
+  instead of just randomly projecting the per-sample gradients, 
+  it applies an iterative algorithm with the goal of better 
+  approximating the Hessian. 
+  In practice, this algorithm seems to dominate 
+  its runtime---we refer the reader to \citep{george2018fast} for more details.
+  \item \method{} requires a forward and backward pass through the model
+    training process for each of the $n$ test samples. The cost 
+    of the forward and backward pass scale linearly 
+    in the number of train samples $N$, 
+    so the full complexity is on the order of $N\cdot n$.
+\end{itemize}
+In summary, \method{} is faster than TRAK and EK-FAC when $n$ is
+small---for example, when $n = 1$ (attributing a single test sample)
+on the CIFAR-10 dataset, 
+\method{} costs essentially 3-5x as much as training a single model
+(15 minutes on a single A100 GPU),
+while TRAK and EK-FAC are both 20-100x slower.
+As $n$ increases, however, \method{}'s cost increases linearly,
+while TRAK and EK-FAC's costs stay roughly constant.
+
+
+
+
+\paragraph{Limitations and future work.}
+One prominent limitation is the one discussed in the previous paragraph: 
+\method{} becomes expensive as the number of test samples $n$ increases.
+The reason for this is that each test sample requires its 
+own metagradient calculation, and each of these calculations 
+costs 3-5\texttimes{} as much as model training in practice
+(see \citet{engstrom2025optimizing} for an in-depth discussion).
+An interesting avenue for future work is to develop (a) more efficient 
+methods for calculating metagradients, and (b) ways to leverage metagradients to
+compute data attribution for multiple test samples at once.
+
+On the algorithmic side, \method{} can only attribute for learning algorithms
+that are smooth 
+(i.e., as described by \citet{engstrom2025optimizing}, 
+``metasmooth''). This and
+previous work has identified variations on standard learning algorithms that
+are smooth---including for language models,
+CLIP~\citep{radford2021learning} models, and standard vision models---but
+finding such a variation can take work (see Section 2 of
+\citet{engstrom2025optimizing} for a discussion). 
+As a simple workaround, we have found
+that simply pretraining a model state for a few hundred iterates
+(and treating the resulting weights as a ``pretrained'' model initialization) 
+is enough to induce smoothness.
+Depending on the scenario, this workaround may or may not be acceptable
+(i.e., using this method will not allow one to account for the impact of
+{\em all} data, but only the data seen after the ``initialization'' stage).
