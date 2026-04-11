@@ -13,3 +13,9 @@
 [submodule "gradient_atoms"]
 	path = gradient_atoms
 	url = git@github.com:jrosseruk/gradient_atoms.git
+[submodule "MAGIC/cifar10-fast"]
+	path = MAGIC/cifar10-fast
+	url = https://github.com/lengstrom/cifar10-fast.git
+[submodule "MAGIC/cifar10-airbench"]
+	path = MAGIC/cifar10-airbench
+	url = https://github.com/KellerJordan/cifar10-airbench.git
